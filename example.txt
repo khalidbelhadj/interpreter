@@ -1,17 +1,5 @@
-add(x int, y int) int {
-    return x + y
-}
-
-main() void {
-    let x = 2
-    if x > 2 {
-        print(add(x, 1))
-    } else {
-        print("bye")
-    }
-}
-
-Point struct {
-    x int
-    y int
+main(argc int, argv string) SomeStruct {
+    print("hello");
+    let x string = "what the heck";
+    print(x);
 }
