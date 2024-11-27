@@ -1,5 +1,6 @@
-main(argc int, argv string) SomeStruct {
-    print("hello");
-    let x string = "what the heck";
+print(s int) unit {}
+
+main() unit {
+    let x int = 2;
     print(x);
 }
