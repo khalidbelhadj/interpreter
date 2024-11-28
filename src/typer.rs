@@ -45,6 +45,9 @@ impl Typer {
                     param_types.insert(name.clone(), ty.clone());
                 }
 
+                self.funcs
+                    .insert(name.clone(), (param_types.clone(), ret_ty.clone()));
+
                 let body_tys = self.tyinfer_block(body, Some(param_types.clone()));
 
                 assert!(body_tys.len() >= 1);
@@ -57,9 +60,6 @@ impl Typer {
                 if body_ty != ret_ty {
                     panic!("Expected {:?}, got {:?}", ret_ty, body_ty);
                 }
-
-                self.funcs
-                    .insert(name.clone(), (param_types, ret_ty.clone()));
             }
             TopLevel::RecDecl(RecDecl { name, fields }) => {
                 self.records.insert(name.clone(), fields.clone());
@@ -106,17 +106,46 @@ impl Typer {
                     let scope = self.vars.last_mut().expect("Scope not defined");
                     scope.insert(name.clone(), ty.clone());
                 }
-                Stmt::Assign(x, expr) => {
-                    let ty = self.get_type(x).cloned();
-                    match ty {
-                        Some(t) => {
-                            self.tycheck_expr(expr, &t);
+                Stmt::Assign(target, expr) => match target {
+                    AssignTarget::Var(name) => {
+                        let ty = self.get_type(name).cloned();
+                        match ty {
+                            Some(t) => {
+                                self.tycheck_expr(expr, &t);
+                            }
+                            None => panic!("Variable {:?} not defined", name),
                         }
-                        None => panic!("Variable {:?} not defined", x),
                     }
-                }
-                Stmt::Call(func, args) => {
-                    let (params, _) = self.funcs.get(func).expect("Function not defined").clone();
+                    AssignTarget::Proj(rec, label) => {
+                        let rec_ty = self.get_type(rec).expect("Variable not defined");
+                        if let Type::Record(name) = rec_ty {
+                            let field_ty = self
+                                .records
+                                .get(name)
+                                .expect("Struct not defined")
+                                .get(label)
+                                .expect("Field not found")
+                                .clone();
+                            self.tycheck_expr(expr, &field_ty);
+                        } else {
+                            panic!("Expected record, got {:?}", rec_ty);
+                        }
+                    }
+                    AssignTarget::Index(elems, index) => {
+                        let array_ty = self.get_type(elems).expect("Variable not defined").clone();
+                        if let Type::Array(ty) = array_ty {
+                            self.tycheck_expr(index, &Type::Int);
+                            self.tycheck_expr(expr, &ty);
+                        } else {
+                            panic!("Expected array, got {:?}", array_ty);
+                        }
+                    }
+                },
+                Stmt::Call(name, args) => {
+                    if name == "print" {
+                        continue;
+                    }
+                    let (params, _) = self.funcs.get(name).expect("Function not defined").clone();
 
                     // iterate over params and check that args match
                     for (i, arg) in args.iter().enumerate() {
@@ -154,6 +183,27 @@ impl Typer {
 
                     if else_block.returns {
                         ret_tys.extend(else_tys);
+                    }
+                }
+                Stmt::While(cond, block) => {
+                    self.tycheck_expr(cond, &Type::Bool);
+                    let block_tys = self.tyinfer_block(block, None);
+
+                    if block.returns {
+                        ret_tys.extend(block_tys);
+                    }
+                }
+                Stmt::For(var, from, to, block) => {
+                    self.tycheck_expr(from, &Type::Int);
+                    self.tycheck_expr(to, &Type::Int);
+
+                    let scope = self.vars.last_mut().expect("Scope not defined");
+                    scope.insert(var.clone(), Type::Int);
+
+                    let block_tys = self.tyinfer_block(block, None);
+
+                    if block.returns {
+                        ret_tys.extend(block_tys);
                     }
                 }
                 Stmt::Ret(expr) => {
@@ -283,6 +333,42 @@ impl Typer {
                 if ret_ty != *ty {
                     panic!("Expected {:?}, got {:?}", ty, ret_ty);
                 }
+            }
+            (Expr::Proj(rec, field), ty) => match self.get_type(rec) {
+                Some(Type::Record(name)) => {
+                    let fields = self.records.get(name).expect("Struct not defined").clone();
+                    let field_ty = fields.get(field).expect("Field not found");
+                    if field_ty != ty {
+                        panic!("Expected {:?}, got {:?}", ty, field_ty);
+                    }
+                }
+                Some(Type::Array(elem_ty)) => {
+                    if field != "len" {
+                        panic!("Expected len, got {:?}", field);
+                    }
+
+                    if ty != &Type::Int {
+                        panic!("Expected Int, got {:?}", ty);
+                    }
+                }
+                _ => panic!("Expected record, got {:?}", rec),
+            },
+            (Expr::Lit(Lit::Array(lit)), Type::Array(ty)) => {
+                for elem in lit.iter() {
+                    self.tycheck_expr(elem, ty);
+                }
+            }
+            (Expr::Index(var, idx), ty) => {
+                let var_ty = self.get_type(var).expect("Variable not defined");
+                if var_ty != &Type::Array(Box::new(ty.clone())) {
+                    panic!(
+                        "Expected {:?}, got {:?}",
+                        Type::Array(Box::new(ty.clone())),
+                        var_ty
+                    );
+                }
+
+                self.tycheck_expr(idx, &Type::Int);
             }
             _ => panic!("Expected {:?}, got expression {:?}", target, expr),
         };

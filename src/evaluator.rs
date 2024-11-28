@@ -8,13 +8,48 @@ enum Value {
     Int(i64),
     Bool(bool),
     Str(String),
+    Record(HashMap<String, Value>),
+    Array(Vec<Value>),
+}
+
+impl ToString for Value {
+    fn to_string(&self) -> String {
+        match self {
+            Value::Unit => "()".to_string(),
+            Value::Int(i) => i.to_string(),
+            Value::Bool(b) => b.to_string(),
+            Value::Str(s) => s.clone(),
+            Value::Record(r) => {
+                let mut s = "{".to_string();
+                for (i, (name, value)) in r.iter().enumerate() {
+                    s.push_str(&format!("{}: {}", name, value.to_string()));
+                    if i < r.len() - 1 {
+                        s.push_str(", ");
+                    }
+                }
+                s.push_str("}");
+                s
+            }
+            Value::Array(a) => {
+                let mut s = "[".to_string();
+                for (i, value) in a.iter().enumerate() {
+                    s.push_str(&value.to_string());
+                    if i < a.len() - 1 {
+                        s.push_str(", ");
+                    }
+                }
+                s.push_str("]");
+                s
+            }
+        }
+    }
 }
 
 type Scope = HashMap<String, Value>;
 
 pub struct Evaluator {
     program: Program,
-    funcs: HashMap<String, (Vec<String>, Block)>,
+    funs: HashMap<String, (Vec<String>, Block)>,
     vars: Vec<Scope>,
 }
 
@@ -22,7 +57,7 @@ impl Evaluator {
     pub fn new(program: Program) -> Evaluator {
         Evaluator {
             program,
-            funcs: HashMap::new(),
+            funs: HashMap::new(),
             vars: vec![],
         }
     }
@@ -36,13 +71,13 @@ impl Evaluator {
                 }) => {
                     let param_names: Vec<String> =
                         params.iter().map(|(name, _)| name.clone()).collect();
-                    self.funcs.insert(name.clone(), (param_names, body.clone()));
+                    self.funs.insert(name.clone(), (param_names, body.clone()));
                 }
                 _ => {}
             }
         }
 
-        let main = self.funcs.get("main").expect("No main function").clone().1;
+        let main = self.funs.get("main").expect("No main function").clone().1;
         self.eval_block(&main, vec![]);
     }
 
@@ -72,10 +107,36 @@ impl Evaluator {
                     let scope = self.vars.last_mut().expect("Scope not defined");
                     scope.insert(name.clone(), value);
                 }
-                Stmt::Assign(name, expr) => {
+                Stmt::Assign(target, expr) => {
                     let value = self.eval_expr(expr);
-                    let v = self.get_var(name);
-                    *v = value;
+                    match target {
+                        AssignTarget::Var(name) => {
+                            let var = self.get_var(name);
+                            *var = value;
+                        }
+                        AssignTarget::Proj(rec, field) => {
+                            let record = match self.get_var(rec) {
+                                Value::Record(r) => r,
+                                _ => panic!("Expected record"),
+                            };
+
+                            let value = record.get_mut(field).expect("Field not found");
+                            *value = value.clone();
+                        }
+                        AssignTarget::Index(array, idx) => {
+                            let idx = match self.eval_expr(idx) {
+                                Value::Int(i) => i as usize,
+                                _ => panic!("Expected int"),
+                            };
+
+                            let array = match self.get_var(array) {
+                                Value::Array(a) => a,
+                                _ => panic!("Expected array"),
+                            };
+
+                            array[idx] = value;
+                        }
+                    }
                 }
                 Stmt::If(expr, block) => {
                     let cond = self.eval_expr(expr);
@@ -101,13 +162,80 @@ impl Evaluator {
                         _ => panic!("Expected bool"),
                     }
                 }
+                Stmt::While(cond, block) => loop {
+                    if let Value::Bool(b) = self.eval_expr(cond) {
+                        if !b {
+                            break;
+                        }
+
+                        self.eval_block(block, vec![]);
+                    } else {
+                        panic!("Expected bool");
+                    }
+                },
+                Stmt::For(var, start, end, block) => {
+                    let start = self.eval_expr(start);
+                    let end = self.eval_expr(end);
+
+                    match (start, end) {
+                        (Value::Int(start), Value::Int(end)) => {
+                            // Create a new scope for the loop variable
+                            let mut scope = HashMap::new();
+                            scope.insert(var.clone(), Value::Int(start));
+                            self.vars.push(scope);
+
+                            loop {
+                                let value = self.get_var(var).clone();
+                                if let Value::Int(value) = value {
+                                    if value >= end {
+                                        break;
+                                    }
+
+                                    self.eval_block(block, vec![]);
+                                    let value = self.get_var(var).clone();
+                                    if let Value::Int(value) = value {
+                                        let value = value + 1;
+                                        let scope =
+                                            self.vars.last_mut().expect("Scope not defined");
+                                        scope.insert(var.clone(), Value::Int(value));
+                                    }
+                                } else {
+                                    panic!("Expected int");
+                                }
+                            }
+
+                            self.vars.pop();
+                        }
+                        _ => panic!("Expected int"),
+                    }
+                }
                 Stmt::Call(func, args) => {
                     if func == "print" {
-                        for arg in args.iter() {
+                        for (i, arg) in args.iter().enumerate() {
                             let value = self.eval_expr(arg);
-                            println!("{:?}", value);
+                            print!("{}", value.to_string());
+                            if i < args.len() - 1 {
+                                print!(" ");
+                            }
                         }
+                        println!();
+                        continue;
                     }
+
+                    let mut arg_values = vec![];
+                    for arg in args.iter() {
+                        arg_values.push(self.eval_expr(arg));
+                    }
+
+                    let (params, block) = self.funs.get(func).expect("Function not found").clone();
+                    self.eval_block(
+                        &block,
+                        params
+                            .iter()
+                            .zip(arg_values)
+                            .map(|(x, y)| (x.clone(), y))
+                            .collect(),
+                    );
                 }
                 Stmt::Ret(expr) => {
                     return self.eval_expr(expr);
@@ -125,143 +253,85 @@ impl Evaluator {
             Expr::Lit(Lit::Bool(b)) => Value::Bool(b.clone()),
             Expr::Lit(Lit::Int(i)) => Value::Int(*i),
             Expr::Lit(Lit::Str(s)) => Value::Str(s.clone()),
-            Expr::Lit(Lit::Record(r)) => todo!(),
+            Expr::Lit(Lit::Record(r)) => {
+                let mut record = HashMap::new();
+                for (name, expr) in r.iter() {
+                    record.insert(name.clone(), self.eval_expr(expr));
+                }
+                Value::Record(record)
+            }
+            Expr::Lit(Lit::Array(a)) => {
+                let mut array = vec![];
+                for expr in a.iter() {
+                    array.push(self.eval_expr(expr));
+                }
+                Value::Array(array)
+            }
             Expr::Var(x) => self.get_var(x).clone(),
-            Expr::Bin(e1, op, e2) => match op {
-                BinOp::Add => {
+            Expr::Bin(e1, op, e2) => {
+                if op.is_arithmetic() {
+                    let op_fun = |v1: i64, v2: i64| match op {
+                        BinOp::Add => v1 + v2,
+                        BinOp::Sub => v1 - v2,
+                        BinOp::Mul => v1 * v2,
+                        BinOp::Div => v1 / v2,
+                        _ => panic!("Expected arithmetic operator"),
+                    };
+
                     let v1 = self.eval_expr(e1);
                     let v2 = self.eval_expr(e2);
 
-                    match (v1, v2) {
-                        (Value::Int(i1), Value::Int(i2)) => Value::Int(i1 + i2),
+                    return match (v1, v2) {
+                        (Value::Int(i1), Value::Int(i2)) => Value::Int(op_fun(i1, i2)),
                         _ => panic!("Expected int"),
-                    }
+                    };
                 }
-                BinOp::Sub => {
+
+                if op.is_logical() {
+                    let op_fun = |v1: bool, v2: bool| match op {
+                        BinOp::And => v1 && v2,
+                        BinOp::Or => v1 || v2,
+                        _ => panic!("Expected logical operator"),
+                    };
+
                     let v1 = self.eval_expr(e1);
                     let v2 = self.eval_expr(e2);
 
-                    match (v1, v2) {
-                        (Value::Int(i1), Value::Int(i2)) => Value::Int(i1 - i2),
-                        _ => panic!("Expected int"),
-                    }
-                }
-                BinOp::Mul => {
-                    let v1 = self.eval_expr(e1);
-                    let v2 = self.eval_expr(e2);
-
-                    match (v1, v2) {
-                        (Value::Int(i1), Value::Int(i2)) => Value::Int(i1 * i2),
-                        _ => panic!("Expected int"),
-                    }
-                }
-                BinOp::Div => {
-                    let v1 = self.eval_expr(e1);
-                    let v2 = self.eval_expr(e2);
-
-                    match (v1, v2) {
-                        (Value::Int(i1), Value::Int(i2)) => Value::Int(i1 / i2),
-                        _ => panic!("Expected int"),
-                    }
-                }
-                BinOp::And => {
-                    let v1 = self.eval_expr(e1);
-                    let v2 = self.eval_expr(e2);
-
-                    match (v1, v2) {
-                        (Value::Bool(b1), Value::Bool(b2)) => Value::Bool(b1 && b2),
+                    return match (v1, v2) {
+                        (Value::Bool(b1), Value::Bool(b2)) => Value::Bool(op_fun(b1, b2)),
                         _ => panic!("Expected bool"),
-                    }
+                    };
                 }
-                BinOp::Or => {
+
+                if op.is_comparison() {
+                    let op_fun = |v1: i64, v2: i64| match op {
+                        BinOp::Eq => v1 == v2,
+                        BinOp::Neq => v1 != v2,
+                        BinOp::Lt => v1 < v2,
+                        BinOp::Leq => v1 <= v2,
+                        BinOp::Gt => v1 > v2,
+                        BinOp::Geq => v1 >= v2,
+                        _ => panic!("Expected comparison operator"),
+                    };
+
                     let v1 = self.eval_expr(e1);
                     let v2 = self.eval_expr(e2);
 
-                    match (v1, v2) {
-                        (Value::Bool(b1), Value::Bool(b2)) => Value::Bool(b1 || b2),
-                        _ => panic!("Expected bool"),
-                    }
-                }
-                BinOp::Eq => {
-                    let v1 = self.eval_expr(e1);
-                    let v2 = self.eval_expr(e2);
-
-                    match (v1, v2) {
-                        (Value::Int(i1), Value::Int(i2)) => Value::Bool(i1 == i2),
-                        (Value::Bool(b1), Value::Bool(b2)) => Value::Bool(b1 == b2),
-                        _ => panic!("Expected int or bool"),
-                    }
-                }
-                BinOp::Neq => {
-                    let v1 = self.eval_expr(e1);
-                    let v2 = self.eval_expr(e2);
-
-                    match (v1, v2) {
-                        (Value::Int(i1), Value::Int(i2)) => Value::Bool(i1 != i2),
-                        (Value::Bool(b1), Value::Bool(b2)) => Value::Bool(b1 != b2),
-                        _ => panic!("Expected int or bool"),
-                    }
-                }
-                BinOp::Lt => {
-                    let v1 = self.eval_expr(e1);
-                    let v2 = self.eval_expr(e2);
-
-                    match (v1, v2) {
-                        (Value::Int(i1), Value::Int(i2)) => Value::Bool(i1 < i2),
+                    return match (v1, v2) {
+                        (Value::Int(i1), Value::Int(i2)) => Value::Bool(op_fun(i1, i2)),
                         _ => panic!("Expected int"),
-                    }
+                    };
                 }
-                BinOp::Leq => {
-                    let v1 = self.eval_expr(e1);
-                    let v2 = self.eval_expr(e2);
 
-                    match (v1, v2) {
-                        (Value::Int(i1), Value::Int(i2)) => Value::Bool(i1 <= i2),
-                        _ => panic!("Expected int"),
-                    }
-                }
-                BinOp::Gt => {
-                    let v1 = self.eval_expr(e1);
-                    let v2 = self.eval_expr(e2);
-
-                    match (v1, v2) {
-                        (Value::Int(i1), Value::Int(i2)) => Value::Bool(i1 > i2),
-                        _ => panic!("Expected int"),
-                    }
-                }
-                BinOp::Geq => {
-                    let v1 = self.eval_expr(e1);
-                    let v2 = self.eval_expr(e2);
-
-                    match (v1, v2) {
-                        (Value::Int(i1), Value::Int(i2)) => Value::Bool(i1 >= i2),
-                        _ => panic!("Expected int"),
-                    }
-                }
-            },
-            Expr::Un(op, e) => match op {
-                UnOp::Not => {
-                    let v = self.eval_expr(e);
-                    match v {
-                        Value::Bool(b) => Value::Bool(!b),
-                        _ => panic!("Expected bool"),
-                    }
-                }
-                UnOp::Negate => {
-                    let v = self.eval_expr(e);
-                    match v {
-                        Value::Int(i) => Value::Int(-i),
-                        _ => panic!("Expected int"),
-                    }
-                }
-            },
-            Expr::Call(func, args) => {
+                panic!("Unknown operator");
+            }
+            Expr::Call(fun, args) => {
                 let mut arg_values = vec![];
                 for arg in args.iter() {
                     arg_values.push(self.eval_expr(arg));
                 }
 
-                let (params, block) = self.funcs.get(func).expect("Function not found").clone();
+                let (params, block) = self.funs.get(fun).expect("Function not found").clone();
                 return self.eval_block(
                     &block,
                     params
@@ -270,6 +340,30 @@ impl Evaluator {
                         .map(|(x, y)| (x.clone(), y))
                         .collect(),
                 );
+            }
+            Expr::Proj(var, field) => match self.get_var(var) {
+                Value::Record(r) => r.get(field).expect("Field not found").clone(),
+                Value::Array(elems) => {
+                    if field == "len" {
+                        return Value::Int(elems.len() as i64);
+                    }
+                    panic!("Expected len")
+                }
+                _ => panic!("Expected record"),
+            },
+
+            Expr::Index(var, idx) => {
+                let array = match self.get_var(var) {
+                    Value::Array(a) => a.clone(),
+                    _ => panic!("Expected array"),
+                };
+
+                let idx = match self.eval_expr(idx) {
+                    Value::Int(i) => i as usize,
+                    _ => panic!("Expected int"),
+                };
+
+                array.get(idx).expect("Index out of bounds").clone()
             }
         }
     }

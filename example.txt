@@ -1,6 +1,29 @@
-print(s int) unit {}
+
+max(xs [int]) int {
+    let m int = 0;
+
+    for i in 0..xs.len {
+        if xs[i] > m {
+            m = xs[i];
+        }
+    }
+
+    return m;
+}
+
+sum(xs [int]) int {
+    let sum int = 0;
+
+    for i in 0..xs.len {
+        sum = sum + xs[i];
+    }
+
+    return sum;
+}
+
 
 main() unit {
-    let x int = 2;
-    print(x);
+    let numbers [int] = [1,2,823, 4, 21];
+    print(sum(numbers));
+    print(max(numbers));
 }

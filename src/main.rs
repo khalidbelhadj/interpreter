@@ -9,10 +9,8 @@ use crate::tokeniser::*;
 use crate::typer::*;
 
 fn main() {
-    let source = std::fs::read_to_string("example.txt").expect("Failed to read file");
-
     println!("---------- Tokens ----------");
-    let mut tokeniser = Tokeniser::new(source);
+    let mut tokeniser = Tokeniser::new("example.txt".into());
     tokeniser.tokenise();
 
     for token in tokeniser.tokens.iter() {
