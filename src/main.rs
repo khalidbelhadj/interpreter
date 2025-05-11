@@ -30,7 +30,7 @@ fn main() {
     typer.tycheck();
 
     println!("Structs:");
-    for (name, fields) in typer.records.iter() {
+    for (name, fields) in typer.structs.iter() {
         println!("    - {:?} {:?}", name, fields);
     }
 

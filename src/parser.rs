@@ -17,13 +17,19 @@ pub struct RecDecl {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
+pub enum ArrayLength {
+    Fixed(usize),
+    Dynamic,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum Type {
     Unit,
     Int,
     Str,
     Bool,
-    Record(String),
-    Array(Box<Type>),
+    Struct(String),
+    Array(Box<Type>, ArrayLength),
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -75,7 +81,7 @@ pub enum Lit {
     Int(i64),
     Str(String),
     Bool(bool),
-    Record(HashMap<String, Expr>),
+    Struct(HashMap<String, Expr>),
     Array(Vec<Expr>),
 }
 
@@ -135,7 +141,10 @@ impl BinOp {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Prec {
-    Base,           // Lowest precedence for non-operators
+    Base, // Lowest precedence for non-operators
+    Dot,
+    Index,
+    Call,
     LogicalOr,      // ||
     LogicalAnd,     // &&
     Equality,       // ==, !=
@@ -175,6 +184,15 @@ impl Parser {
         if self.peek() == expected {
             self.current += 1;
         } else {
+            // print last 10 tokens
+            let start = if self.current >= 10 {
+                self.current - 10
+            } else {
+                0
+            };
+            let end = self.current + 10;
+            let tokens = &self.tokens[start..end];
+            println!("Tokens: {:?}", tokens);
             panic!("Expected token {:?}, got {:?}", expected, self.peek());
         }
     }
@@ -198,15 +216,19 @@ impl Parser {
 
             self.advance();
 
+            // Consume compile time assign operator
+            self.consume(Token::Colon);
+            self.consume(Token::Colon);
+
             let tok = self.peek();
             match tok {
                 Token::LeftParen => {
                     let fun = self.parse_func(name);
                     self.program.push(TopLevel::FunDecl(fun));
                 }
-                Token::Record => {
-                    let record = self.parse_record(name);
-                    self.program.push(TopLevel::RecDecl(record));
+                Token::Struct => {
+                    let struct_def = self.parse_struct(name);
+                    self.program.push(TopLevel::RecDecl(struct_def));
                 }
                 _ => panic!(
                     "Expected top-level function or struct decleration, got {:?}",
@@ -237,20 +259,42 @@ impl Parser {
             }
             Token::Ident(name) => {
                 self.advance();
-                Type::Record(name)
+                Type::Struct(name)
             }
             Token::LeftBracket => {
                 self.advance();
                 let elem_ty = self.parse_type();
-                self.consume(Token::RightBracket);
-                Type::Array(Box::new(elem_ty))
+                self.consume(Token::Comma);
+                // Parse int literal for array size
+                match self.peek() {
+                    Token::Integer(size) => {
+                        self.advance();
+                        if size <= 0 {
+                            panic!("Array size must be greater than 0");
+                        }
+
+                        self.consume(Token::RightBracket);
+                        return Type::Array(Box::new(elem_ty), ArrayLength::Fixed(size as usize));
+                    }
+                    Token::QuestionMark => {
+                        self.advance();
+                        self.consume(Token::RightBracket);
+                        return Type::Array(Box::new(elem_ty), ArrayLength::Dynamic);
+                    }
+                    _ => {
+                        panic!(
+                            "Expected integer literal for array size, got {:?}",
+                            self.peek()
+                        );
+                    }
+                }
             }
             _ => panic!("Expected type, got {:?}", self.peek()),
         }
     }
 
-    fn parse_record(&mut self, name: String) -> RecDecl {
-        self.consume(Token::Record);
+    fn parse_struct(&mut self, name: String) -> RecDecl {
+        self.consume(Token::Struct);
         self.consume(Token::LeftBrace);
 
         let mut fields = HashMap::new();
@@ -339,6 +383,7 @@ impl Parser {
         while self.peek() != Token::RightBrace {
             let statement = self.peek();
             match statement {
+                // Statements
                 Token::Let => {
                     self.consume(Token::Let);
                     let name = self.consume_identifier();
@@ -348,49 +393,10 @@ impl Parser {
                     self.consume(Token::Semicolon);
                     statements.push(Stmt::VarDecl(name, ty, expr));
                 }
-                Token::Ident(name) => {
-                    self.advance();
-                    match self.peek() {
-                        Token::Equal => {
-                            self.consume(Token::Equal);
-                            let expr = self.parse_expr();
-                            self.consume(Token::Semicolon);
-                            statements.push(Stmt::Assign(AssignTarget::Var(name), expr));
-                        }
-                        Token::Dot => {
-                            self.consume(Token::Dot);
-                            let label = self.consume_identifier();
-                            self.consume(Token::Equal);
-                            let expr = self.parse_expr();
-                            self.consume(Token::Semicolon);
-                            statements.push(Stmt::Assign(AssignTarget::Proj(name, label), expr));
-                        }
-                        Token::LeftBracket => {
-                            self.consume(Token::LeftBracket);
-                            let index = self.parse_expr();
-                            self.consume(Token::RightBracket);
-                            self.consume(Token::Equal);
-                            let expr = self.parse_expr();
-                            self.consume(Token::Semicolon);
-                            statements.push(Stmt::Assign(
-                                AssignTarget::Index(name, Box::new(index)),
-                                expr,
-                            ));
-                        }
-                        Token::LeftParen => {
-                            let args = self.parse_arguments();
-                            self.consume(Token::Semicolon);
-                            statements.push(Stmt::Call(name, args));
-                        }
-                        _ => panic!(
-                            "Expected assignment or function call, got {:?}",
-                            self.peek()
-                        ),
-                    }
-                }
                 Token::If => {
                     self.consume(Token::If);
-                    let cond = self.parse_expr();
+                    let cond = self.parse_condition();
+                    println!("cond: {:?}", cond);
                     let if_block = self.parse_block();
 
                     if self.peek() == Token::Else {
@@ -403,7 +409,7 @@ impl Parser {
                 }
                 Token::While => {
                     self.consume(Token::While);
-                    let cond = self.parse_expr();
+                    let cond = self.parse_condition();
                     let block = self.parse_block();
                     statements.push(Stmt::While(cond, block));
                 }
@@ -431,9 +437,40 @@ impl Parser {
                     self.consume(Token::Semicolon);
                     statements.push(Stmt::Ret(expr));
                 }
-
+                // Try to parse expressions
                 _ => {
-                    panic!("Expected statement or semi-colon, got {:?}", statement)
+                    let expr = self.parse_expr();
+                    match self.peek() {
+                        Token::Semicolon => {
+                            // Check that it's a function call
+                            self.consume(Token::Semicolon);
+                            if let Expr::Call(name, args) = expr {
+                                statements.push(Stmt::Call(name, args));
+                            } else {
+                                panic!("Expected function call, got {:?}", expr);
+                            }
+                        }
+                        Token::Equal => {
+                            // Check that the expression is an lvalue
+                            self.consume(Token::Equal);
+                            let target = match expr {
+                                Expr::Var(name) => AssignTarget::Var(name),
+                                Expr::Proj(name, label) => AssignTarget::Proj(name, label),
+                                Expr::Index(name, index) => AssignTarget::Index(name, index),
+                                _ => panic!("Expected lvalue, got {:?}", expr),
+                            };
+                            // Parse the right hand side and check for semicolon
+                            let rhs = self.parse_expr();
+                            self.consume(Token::Semicolon);
+                            statements.push(Stmt::Assign(target, rhs));
+                        }
+                        _ => {
+                            panic!(
+                                "Expected function call or assignment, got {:?}",
+                                self.peek()
+                            );
+                        }
+                    }
                 }
             }
         }
@@ -445,7 +482,7 @@ impl Parser {
         }
     }
 
-    fn parse_record_literal(&mut self) -> HashMap<String, Expr> {
+    fn parse_struct_literal(&mut self) -> HashMap<String, Expr> {
         self.consume(Token::LeftBrace);
         let mut fields = HashMap::new();
         loop {
@@ -472,17 +509,33 @@ impl Parser {
     }
 
     fn parse_expr(&mut self) -> Expr {
-        self.parse_expr_prec(Prec::Base)
+        self.parse_expr_prec(Prec::Base, false)
     }
 
-    fn parse_expr_prec(&mut self, prec: Prec) -> Expr {
+    fn parse_condition(&mut self) -> Expr {
+        self.parse_expr_prec(Prec::Base, true)
+    }
+
+    fn parse_expr_prec(&mut self, prec: Prec, is_condition: bool) -> Expr {
         let mut left = match self.peek() {
             Token::Integer(n) => {
                 self.advance();
                 Expr::Lit(Lit::Int(n))
             }
-            Token::Ident(name) => {
-                self.advance();
+            Token::Hash | Token::Ident(_) => {
+                let name = if let Token::Ident(name) = self.peek() {
+                    self.advance();
+                    name
+                } else {
+                    self.advance();
+                    if let Token::Ident(name) = self.peek() {
+                        self.advance();
+                        format!("#{name}")
+                    } else {
+                        panic!("Expected identifier, got {:?}", self.peek());
+                    }
+                };
+
                 match self.peek() {
                     Token::LeftParen => {
                         let args = self.parse_arguments();
@@ -499,13 +552,16 @@ impl Parser {
                         self.consume(Token::RightBracket);
                         Expr::Index(name, Box::new(index))
                     }
+                    Token::LeftBrace => {
+                        if is_condition {
+                            return Expr::Var(name);
+                        }
+
+                        let fields = self.parse_struct_literal();
+                        Expr::Lit(Lit::Struct(fields))
+                    }
                     _ => Expr::Var(name),
                 }
-            }
-
-            Token::LeftBrace => {
-                let fields = self.parse_record_literal();
-                Expr::Lit(Lit::Record(fields))
             }
             Token::StringLiteral(s) => {
                 self.advance();
@@ -556,7 +612,7 @@ impl Parser {
             }
 
             self.advance(); // Consume operator
-            let right = self.parse_expr_prec(op_prec); // Parse right-hand side with higher precedence
+            let right = self.parse_expr_prec(op_prec, false); // Parse right-hand side with higher precedence
             left = Expr::Bin(Box::new(left), op, Box::new(right));
         }
 

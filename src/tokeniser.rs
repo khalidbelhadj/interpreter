@@ -1,7 +1,7 @@
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Token {
     // Keywords
-    Record,
+    Struct,
     Let,
     If,
     Else,
@@ -39,6 +39,8 @@ pub enum Token {
     EqualEqual,
     NotEqual,
     Semicolon,
+    Hash,
+    QuestionMark,
 
     LeftParen,
     RightParen,
@@ -55,7 +57,7 @@ pub enum Token {
 impl ToString for Token {
     fn to_string(&self) -> String {
         return match self {
-            Token::Record => "\"record\"",
+            Token::Struct => "\"struct\"",
             Token::Let => "\"let\"",
             Token::If => "\"if\"",
             Token::Else => "\"else\"",
@@ -90,6 +92,8 @@ impl ToString for Token {
             Token::EqualEqual => "\"==\"",
             Token::NotEqual => "\"!=\"",
             Token::Semicolon => "\";\"",
+            Token::Hash => "\"#\"",
+            Token::QuestionMark => "\"?\"",
             Token::LeftParen => todo!(),
             Token::RightParen => todo!(),
             Token::LeftBrace => todo!(),
@@ -167,7 +171,6 @@ impl Tokeniser {
             '+' => self.tokens.push(Token::Plus),
             '-' => self.tokens.push(Token::Minus),
             '*' => self.tokens.push(Token::Star),
-            '/' => self.tokens.push(Token::Slash),
             ':' => self.tokens.push(Token::Colon),
             ';' => self.tokens.push(Token::Semicolon),
             ',' => self.tokens.push(Token::Comma),
@@ -177,6 +180,52 @@ impl Tokeniser {
             '}' => self.tokens.push(Token::RightBrace),
             '[' => self.tokens.push(Token::LeftBracket),
             ']' => self.tokens.push(Token::RightBracket),
+            '#' => self.tokens.push(Token::Hash),
+            '?' => self.tokens.push(Token::QuestionMark),
+            '/' => {
+                if self.peek() == '/' {
+                    // Single-line comment
+                    while self.peek() != '\n' && !self.is_at_end() {
+                        self.advance();
+                    }
+                } else if self.peek() == '*' {
+                    // Multi-line comment
+                    self.advance(); // consume the '*'
+
+                    // Continue until we find a closing */
+                    let mut nesting = 1;
+                    while nesting > 0 && !self.is_at_end() {
+                        if self.peek() == '*' {
+                            self.advance();
+                            if self.peek() == '/' {
+                                self.advance();
+                                nesting -= 1;
+                            }
+                        } else if self.peek() == '/' {
+                            self.advance();
+                            if self.peek() == '*' {
+                                self.advance();
+                                nesting += 1;
+                            }
+                        } else if self.peek() == '\n' {
+                            self.advance();
+                            self.line += 1;
+                            self.column = 1;
+                        } else {
+                            self.advance();
+                        }
+                    }
+
+                    if self.is_at_end() && nesting > 0 {
+                        panic!(
+                            "{}:{}:{}: Unterminated multi-line comment",
+                            self.file_name, self.line, self.start
+                        );
+                    }
+                } else {
+                    self.tokens.push(Token::Slash);
+                }
+            }
             '!' => {
                 if self.peek() == '=' {
                     self.advance();
@@ -254,7 +303,7 @@ impl Tokeniser {
                     }
 
                     match identifier.as_str() {
-                        "record" => self.tokens.push(Token::Record),
+                        "struct" => self.tokens.push(Token::Struct),
                         "let" => self.tokens.push(Token::Let),
                         "if" => self.tokens.push(Token::If),
                         "else" => self.tokens.push(Token::Else),

@@ -8,7 +8,7 @@ enum Value {
     Int(i64),
     Bool(bool),
     Str(String),
-    Record(HashMap<String, Value>),
+    Struct(HashMap<String, Value>),
     Array(Vec<Value>),
 }
 
@@ -19,7 +19,7 @@ impl ToString for Value {
             Value::Int(i) => i.to_string(),
             Value::Bool(b) => b.to_string(),
             Value::Str(s) => s.clone(),
-            Value::Record(r) => {
+            Value::Struct(r) => {
                 let mut s = "{".to_string();
                 for (i, (name, value)) in r.iter().enumerate() {
                     s.push_str(&format!("{}: {}", name, value.to_string()));
@@ -115,12 +115,12 @@ impl Evaluator {
                             *var = value;
                         }
                         AssignTarget::Proj(rec, field) => {
-                            let record = match self.get_var(rec) {
-                                Value::Record(r) => r,
-                                _ => panic!("Expected record"),
+                            let struct_var = match self.get_var(rec) {
+                                Value::Struct(r) => r,
+                                _ => panic!("Expected struct"),
                             };
 
-                            let value = record.get_mut(field).expect("Field not found");
+                            let value = struct_var.get_mut(field).expect("Field not found");
                             *value = value.clone();
                         }
                         AssignTarget::Index(array, idx) => {
@@ -210,7 +210,7 @@ impl Evaluator {
                     }
                 }
                 Stmt::Call(func, args) => {
-                    if func == "print" {
+                    if func == "#print" {
                         for (i, arg) in args.iter().enumerate() {
                             let value = self.eval_expr(arg);
                             print!("{}", value.to_string());
@@ -253,12 +253,12 @@ impl Evaluator {
             Expr::Lit(Lit::Bool(b)) => Value::Bool(b.clone()),
             Expr::Lit(Lit::Int(i)) => Value::Int(*i),
             Expr::Lit(Lit::Str(s)) => Value::Str(s.clone()),
-            Expr::Lit(Lit::Record(r)) => {
-                let mut record = HashMap::new();
+            Expr::Lit(Lit::Struct(r)) => {
+                let mut struct_val = HashMap::new();
                 for (name, expr) in r.iter() {
-                    record.insert(name.clone(), self.eval_expr(expr));
+                    struct_val.insert(name.clone(), self.eval_expr(expr));
                 }
-                Value::Record(record)
+                Value::Struct(struct_val)
             }
             Expr::Lit(Lit::Array(a)) => {
                 let mut array = vec![];
@@ -326,6 +326,16 @@ impl Evaluator {
                 panic!("Unknown operator");
             }
             Expr::Call(fun, args) => {
+                if fun == "#length" {
+                    let arg = args.get(0).expect("Argument not found");
+                    let arg = self.eval_expr(arg);
+                    if let Value::Array(a) = arg {
+                        return Value::Int(a.len() as i64);
+                    } else {
+                        panic!("Expected array");
+                    }
+                }
+
                 let mut arg_values = vec![];
                 for arg in args.iter() {
                     arg_values.push(self.eval_expr(arg));
@@ -342,14 +352,14 @@ impl Evaluator {
                 );
             }
             Expr::Proj(var, field) => match self.get_var(var) {
-                Value::Record(r) => r.get(field).expect("Field not found").clone(),
+                Value::Struct(r) => r.get(field).expect("Field not found").clone(),
                 Value::Array(elems) => {
                     if field == "len" {
                         return Value::Int(elems.len() as i64);
                     }
                     panic!("Expected len")
                 }
-                _ => panic!("Expected record"),
+                _ => panic!("Expected struct"),
             },
 
             Expr::Index(var, idx) => {

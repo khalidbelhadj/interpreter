@@ -7,7 +7,7 @@ type Scope = HashMap<String, Type>;
 pub struct Typer {
     pub program: Program,
     pub vars: Vec<Scope>,
-    pub records: HashMap<String, HashMap<String, Type>>,
+    pub structs: HashMap<String, HashMap<String, Type>>,
     pub funcs: HashMap<String, (HashMap<String, Type>, Type)>,
 }
 
@@ -16,7 +16,7 @@ impl Typer {
         Typer {
             program,
             vars: vec![],
-            records: HashMap::new(),
+            structs: HashMap::new(),
             funcs: HashMap::new(),
         }
     }
@@ -62,7 +62,7 @@ impl Typer {
                 }
             }
             TopLevel::RecDecl(RecDecl { name, fields }) => {
-                self.records.insert(name.clone(), fields.clone());
+                self.structs.insert(name.clone(), fields.clone());
             }
         }
     }
@@ -118,9 +118,9 @@ impl Typer {
                     }
                     AssignTarget::Proj(rec, label) => {
                         let rec_ty = self.get_type(rec).expect("Variable not defined");
-                        if let Type::Record(name) = rec_ty {
+                        if let Type::Struct(name) = rec_ty {
                             let field_ty = self
-                                .records
+                                .structs
                                 .get(name)
                                 .expect("Struct not defined")
                                 .get(label)
@@ -128,12 +128,12 @@ impl Typer {
                                 .clone();
                             self.tycheck_expr(expr, &field_ty);
                         } else {
-                            panic!("Expected record, got {:?}", rec_ty);
+                            panic!("Expected struct, got {:?}", rec_ty);
                         }
                     }
                     AssignTarget::Index(elems, index) => {
                         let array_ty = self.get_type(elems).expect("Variable not defined").clone();
-                        if let Type::Array(ty) = array_ty {
+                        if let Type::Array(ty, _) = array_ty {
                             self.tycheck_expr(index, &Type::Int);
                             self.tycheck_expr(expr, &ty);
                         } else {
@@ -142,10 +142,23 @@ impl Typer {
                     }
                 },
                 Stmt::Call(name, args) => {
-                    if name == "print" {
+                    if name == "#print" {
                         continue;
                     }
-                    let (params, _) = self.funcs.get(name).expect("Function not defined").clone();
+
+                    if name == "#length" {
+                        let arg = args.get(0).expect("Argument not found");
+                        self.tycheck_expr(
+                            arg,
+                            &Type::Array(Box::new(Type::Int), ArrayLength::Dynamic),
+                        );
+                    }
+
+                    let (params, _) = self
+                        .funcs
+                        .get(name)
+                        .expect(format!("Function {} not defined", name).as_str())
+                        .clone();
 
                     // iterate over params and check that args match
                     for (i, arg) in args.iter().enumerate() {
@@ -302,6 +315,33 @@ impl Typer {
 
                 panic!("Type mismatch");
             }
+            (Expr::Var(x), Type::Array(elem_ty, size)) => {
+                match self.get_type(x) {
+                    Some(Type::Array(ty, s)) => {
+                        if ty != elem_ty {
+                            panic!("Expected {:?}, got {:?}", elem_ty, ty);
+                        }
+                        match (size, s) {
+                            (ArrayLength::Dynamic, ArrayLength::Dynamic) => {
+                                // do nothing
+                            }
+                            (ArrayLength::Dynamic, ArrayLength::Fixed(s)) => {
+                                // do nothing
+                            }
+                            (ArrayLength::Fixed(s1), ArrayLength::Fixed(s2)) => {
+                                if s1 != s2 {
+                                    panic!(
+                                        "Expected array of length {:?}, got length {:?}",
+                                        s1, s2
+                                    );
+                                }
+                            }
+                            _ => panic!("Expected dynamic array, got {:?}", size),
+                        }
+                    }
+                    _ => panic!("Expected array, got {:?}", x),
+                }
+            }
             (Expr::Var(x), ty) => match self.get_type(x) {
                 Some(t) => {
                     if t != ty {
@@ -310,8 +350,8 @@ impl Typer {
                 }
                 None => panic!("Variable {:?} not defined", x),
             },
-            (Expr::Lit(Lit::Record(lit)), Type::Record(name)) => {
-                let fields = self.records.get(name).expect("Struct not defined").clone();
+            (Expr::Lit(Lit::Struct(lit)), Type::Struct(name)) => {
+                let fields = self.structs.get(name).expect("Struct not defined").clone();
                 for (field, ty) in fields.iter() {
                     let value = lit.get(field).expect("Field not found");
                     self.tycheck_expr(value, ty);
@@ -335,14 +375,14 @@ impl Typer {
                 }
             }
             (Expr::Proj(rec, field), ty) => match self.get_type(rec) {
-                Some(Type::Record(name)) => {
-                    let fields = self.records.get(name).expect("Struct not defined").clone();
+                Some(Type::Struct(name)) => {
+                    let fields = self.structs.get(name).expect("Struct not defined").clone();
                     let field_ty = fields.get(field).expect("Field not found");
                     if field_ty != ty {
                         panic!("Expected {:?}, got {:?}", ty, field_ty);
                     }
                 }
-                Some(Type::Array(elem_ty)) => {
+                Some(Type::Array(elem_ty, size)) => {
                     if field != "len" {
                         panic!("Expected len, got {:?}", field);
                     }
@@ -351,21 +391,35 @@ impl Typer {
                         panic!("Expected Int, got {:?}", ty);
                     }
                 }
-                _ => panic!("Expected record, got {:?}", rec),
+                _ => panic!("Expected struct, got {:?}", rec),
             },
-            (Expr::Lit(Lit::Array(lit)), Type::Array(ty)) => {
+            (Expr::Lit(Lit::Array(lit)), Type::Array(ty, size)) => {
+                match size {
+                    ArrayLength::Dynamic => {}
+                    ArrayLength::Fixed(s) => {
+                        if s != &lit.len() {
+                            panic!(
+                                "Expected array of length {:?}, got length {:?}",
+                                s,
+                                lit.len()
+                            );
+                        }
+                    }
+                }
+
                 for elem in lit.iter() {
                     self.tycheck_expr(elem, ty);
                 }
             }
             (Expr::Index(var, idx), ty) => {
                 let var_ty = self.get_type(var).expect("Variable not defined");
-                if var_ty != &Type::Array(Box::new(ty.clone())) {
-                    panic!(
-                        "Expected {:?}, got {:?}",
-                        Type::Array(Box::new(ty.clone())),
-                        var_ty
-                    );
+                match var_ty {
+                    Type::Array(elem_ty, _) => {
+                        if elem_ty.as_ref() != ty {
+                            panic!("Expected {:?}, got {:?}", ty, elem_ty);
+                        }
+                    }
+                    _ => panic!("Expected array, got {:?}", var_ty),
                 }
 
                 self.tycheck_expr(idx, &Type::Int);

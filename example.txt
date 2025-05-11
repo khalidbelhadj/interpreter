@@ -1,29 +1,11 @@
-
-max(xs [int]) int {
-    let m int = 0;
-
-    for i in 0..xs.len {
-        if xs[i] > m {
-            m = xs[i];
-        }
-    }
-
-    return m;
-}
-
-sum(xs [int]) int {
-    let sum int = 0;
-
-    for i in 0..xs.len {
-        sum = sum + xs[i];
-    }
-
-    return sum;
+slice_function :: (xs [int, ?]) unit {
+    #print("typechecks");
 }
 
 
-main() unit {
-    let numbers [int] = [1,2,823, 4, 21];
-    print(sum(numbers));
-    print(max(numbers));
+main :: () unit {
+    let xs [int, 2] = [1, 2];
+    let ys [int, ?] = [1, 2];
+    slice_function(xs);
+    slice_function(ys);
 }
