@@ -333,7 +333,7 @@ impl Typer {
                     span,
                 } => {
                     self.type_check_expr(cond, &Type::Bool);
-                    self.type_check_block(HashMap::new(), block, ret_ty.clone());
+                    self.type_check_block(HashMap::new(), then_block, ret_ty.clone());
                 }
                 Stmt::IfElse {
                     cond,
@@ -551,7 +551,7 @@ impl Typer {
 
             (Expr::Ref(expr), Type::Ref(ty)) => {
                 self.type_check_expr(expr, ty);
-            },
+            }
             (Expr::Deref(expr), Type::Ref(ty)) => {
                 self.type_check_expr(expr, &Type::Ref(ty.clone()))
             }

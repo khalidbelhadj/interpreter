@@ -1,37 +1,11 @@
 # Interpreter
 
-## Notes
+An interpreter for a made up language. The purpose of this project is to learn more about programming languages by implementing a parsing, type checking, code generation, garbage collection and a virtual machine.
 
-- [x] Fix assignment lhs to allow more complex expressions
-    - done by considering lvalue and rvalue expressions
-- [x] Decide on call semantics
-    - call by value, will introduce references later
-- [x] Decide on built in data structures
-    - Only arrays, will add a standard library with more later
-- [x] Actually implement primitive function `#`
-- [x] Slices
-    - question mark syntax for slices
-- [x] Type checking of branches
-- [x] Location errors
-- [x] Combinding unary operators like `[]` and `.`
-- [ ] Generics
-- [ ] Dynamic memory allocation
-    - `#allocate` primitive
-- [ ] `not` operator
-- [ ] Floats and negative numbers
-- [ ] Fixed precision numbers
-- [ ] Make strings more concrete, array of chars? How do we represent them?
-- [ ] Variants
-- [ ] Type inference
 
-## Stages
+## Language Reference
 
-1. Tokenising
-2. Parsing
-3. Typechecking
-4. Evaluation
-
-## Features
+This lanugage is statically and strongly typed and compiled, with  a simple C-like procedural approach (no OOP). There is no target of compilation yet, the AST is evaluated directly with a simple VM. The idea is that the language will be compiled to bytecode which runs on it's own VM. At the moment there is no consideration for garbage collection and memory is reference counted, but I plan to implement a garbage collector for the language.
 
 ### Procedures
 
@@ -70,6 +44,7 @@ main :: () unit {
 ```
 
 ### Variables
+
 Variables are defined using the `let` keyword. The type of the variable is specified after the variable name. At this point in time the type is required, but in the future it will be inferred.
 
 ```
@@ -81,7 +56,7 @@ main :: () unit {
 
 ### Branching
 
-Braching is done using the `if` and `else` keywords. the elif keyword is not supported at this time.
+Braching is done using the `if` and `else` keywords. `else if` is not supported at this time.
 
 ```
 if x > 5 {
@@ -107,18 +82,16 @@ for i in 0..10 {
 }
 ```
 
-### Arrays
+### Arrays and Slices
 
-Arrays are the main primitive for contiguous memory. They are defined using `[]` syntax. At the moment the type requires a size parameter, dynamic arrays are inn the works.
+Arrays are the main primitive for contiguous memory. They are defined using `[]` syntax. A size parameter is provided after the type. If the size parameter is not provided, the array is now a slice, meaning it's size is determined at runtime. Arrays can be taken as slices, but slices cannot be taken as arrays.
 
 ```
-sum :: (xs [int, 5]) int {
+sum :: (xs [int]) int {
     let sum int = 0;
-
-    for i in 0..#length(xs) {
+    for i in 0..5 {
         sum = sum + xs[i];
     }
-
     return sum;
 }
 
@@ -129,26 +102,53 @@ main :: () unit {
 }
 ```
 
-The `#length` builtin is used to get the length of an array.
+The `#length` builtin is used to get the length of an array or slice.
 
-### Slices
+## References
 
-Slices are similar to arrays, but they do not require a size parameter. They are defined using `?` syntax. Slices are passed by reference, so they can be modified in place.
+References are memory addresses of values on the stack or heap.
 
 ```
+pass_by_value :: (x int) unit {
+    x = 20;
+}
 
-double :: (xs [int, ?]) unit {
-    for i in 0..#length(xs) {
-        xs[i] = xs[i] * 2;
-    }
+pass_by_ref :: (r &int) unit {
+    *r = 20;
 }
 
 main :: () unit {
-    let numbers [int, ?] = [1, 2, 3, 4, 5];
-    #print(numbers);
-    double(numbers);
-    #print(numbers);
+    let x int = 10;
+    let r &int = &x;
+    pass_by_value(x);
+    // x is still 10
+    pass_by_ref(r);
+    // x is now 20
 }
 ```
 
-The `#length` builtin is used to get the length of an slice.
+## Notes
+
+- [x] Fix assignment lhs to allow more complex expressions
+    - done by considering lvalue and rvalue expressions
+- [x] Decide on call semantics
+    - call by value, will introduce references later
+- [x] Decide on built in data structures
+    - Only arrays, will add a standard library with more later
+- [x] Actually implement primitive function `#`
+- [x] Slices
+    - question mark syntax for slices
+- [x] Type checking of branches
+- [x] Location errors
+- [x] Combinding unary operators like `[]` and `.`
+- [x] Reference semantics
+  - use the `&` operator to get the reference of an expression
+  - use references as types and function semantics
+- [ ] Floats and negative numbers
+- [ ] `not` operator
+- [ ] Fixed precision numbers like u32, i64 and so on
+- [ ] Make strings more concrete, array of chars? How do we represent them?
+- [ ] Variants
+- [ ] Generics
+- [ ] Type inference
+

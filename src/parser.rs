@@ -186,7 +186,8 @@ impl Expr {
                     expr: _,
                     index: _,
                     span: _
-                } | Expr::Deref(_)
+                }
+                | Expr::Deref(_)
         )
     }
 
@@ -820,7 +821,7 @@ impl Parser {
                 self.advance();
                 let expr = self.parse_expr();
                 return Expr::Deref(Box::new(expr));
-            },
+            }
             _ => {
                 let tok = self.peek();
                 error!(

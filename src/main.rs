@@ -16,6 +16,7 @@ use env_logger::{Builder, Env};
 use log::Level;
 use std::io::Write;
 use std::process::exit;
+use std::time::SystemTime;
 
 fn init_logger() {
     Builder::from_env(Env::default().default_filter_or("debug"))
@@ -62,8 +63,12 @@ fn main() {
     let file_path = &args[1];
 
     // println!("---------- Tokens ----------");
+    let start = SystemTime::now();
     let mut tokeniser = Tokeniser::from_file(file_path.clone());
     tokeniser.tokenise();
+    let end = SystemTime::now();
+    let duration = end.duration_since(start).unwrap();
+    println!("tokeniser: {}s", duration.as_secs_f64());
 
     // for token in tokeniser.tokens.iter() {
     //     println!("{:?}", token)
@@ -72,19 +77,37 @@ fn main() {
 
     // println!("---------- Parsing ----------");
     let mut parser = Parser::new(tokeniser.file_path, tokeniser.tokens);
+    let start = SystemTime::now();
+    let mut tokeniser = Tokeniser::from_file(file_path.clone());
     parser.parse();
+    let end = SystemTime::now();
+    let duration = end.duration_since(start).unwrap();
+    println!("parser: {}s", duration.as_secs_f64());
 
     // println!("{:#?}", parser.program);
     // println!();
 
     // println!("---------- Typechecking ----------");
     let mut typer = Typer::new(parser.program, file_path.clone());
+
+    let mut parser = Parser::new(tokeniser.file_path, tokeniser.tokens);
+    let start = SystemTime::now();
+    let mut tokeniser = Tokeniser::from_file(file_path.clone());
     typer.type_check();
+    let end = SystemTime::now();
+    let duration = end.duration_since(start).unwrap();
+    println!("typer: {}s", duration.as_secs_f64());
+
     for e in typer.errors.iter() {
         println!("{}", e);
     }
 
     if typer.errors.len() != 0 {
+        println!(
+            "Could not compile {} due to {} previous errors",
+            typer.file_path,
+            typer.errors.len()
+        );
         exit(1);
     }
 
