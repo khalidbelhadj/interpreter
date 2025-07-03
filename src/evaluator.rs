@@ -1,380 +1,555 @@
-use std::collections::HashMap;
+// use core::error;
+// use std::fmt::Display;
+// use std::ops::Add;
+// use std::process::exit;
+// use std::sync::Arc;
+// use std::thread::panicking;
+// use std::{collections::HashMap, vec};
 
-use crate::parser::*;
+// use crate::parser::*;
+// use crate::tokeniser::Span;
 
-#[derive(Debug, Clone)]
-enum Value {
-    Unit,
-    Int(i64),
-    Bool(bool),
-    Str(String),
-    Struct(HashMap<String, Value>),
-    Array(Vec<Value>),
-}
+// use log::{debug, error, info};
 
-impl ToString for Value {
-    fn to_string(&self) -> String {
-        match self {
-            Value::Unit => "()".to_string(),
-            Value::Int(i) => i.to_string(),
-            Value::Bool(b) => b.to_string(),
-            Value::Str(s) => s.clone(),
-            Value::Struct(r) => {
-                let mut s = "{".to_string();
-                for (i, (name, value)) in r.iter().enumerate() {
-                    s.push_str(&format!("{}: {}", name, value.to_string()));
-                    if i < r.len() - 1 {
-                        s.push_str(", ");
-                    }
-                }
-                s.push_str("}");
-                s
-            }
-            Value::Array(a) => {
-                let mut s = "[".to_string();
-                for (i, value) in a.iter().enumerate() {
-                    s.push_str(&value.to_string());
-                    if i < a.len() - 1 {
-                        s.push_str(", ");
-                    }
-                }
-                s.push_str("]");
-                s
-            }
-        }
-    }
-}
+// #[derive(Debug, Clone)]
+// enum Value {
+//     Unit,
+//     Int(i64),
+//     Bool(bool),
+//     String(String),
+//     Struct(HashMap<String, Value>),
+//     Array(Vec<Value>),
+//     Ref(String),
+// }
 
-type Scope = HashMap<String, Value>;
+// #[derive(Debug, Clone)]
+// enum Addressing {
+//     Var { name: String },
+//     Proj { lhs: Box<Addressing>, field: String },
+// }
 
-pub struct Evaluator {
-    program: Program,
-    funs: HashMap<String, (Vec<String>, Block)>,
-    vars: Vec<Scope>,
-}
+// impl Display for Value {
+//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//         let string = match self {
+//             Value::Unit => "unit".to_string(),
+//             Value::Int(i) => i.to_string(),
+//             Value::Bool(b) => b.to_string(),
+//             Value::String(s) => s.clone(),
+//             Value::Struct(r) => {
+//                 let mut s = "{".to_string();
+//                 for (i, (name, value)) in r.iter().enumerate() {
+//                     s.push_str(&format!("{}: {}", name, value));
+//                     if i < r.len() - 1 {
+//                         s.push_str(", ");
+//                     }
+//                 }
+//                 s.push('}');
+//                 s
+//             }
+//             Value::Array(a) => {
+//                 let mut s = "[".to_string();
+//                 for (i, value) in a.iter().enumerate() {
+//                     s.push_str(&value.to_string());
+//                     if i < a.len() - 1 {
+//                         s.push_str(", ");
+//                     }
+//                 }
+//                 s.push(']');
+//                 s
+//             }
+//             Value::Ref(_) => todo!(),
+//         };
 
-impl Evaluator {
-    pub fn new(program: Program) -> Evaluator {
-        Evaluator {
-            program,
-            funs: HashMap::new(),
-            vars: vec![],
-        }
-    }
+//         write!(f, "{string}")
+//     }
+// }
 
-    pub fn eval(&mut self) {
-        // add all functions to the funcs map
-        for top_level in self.program.iter() {
-            match top_level {
-                TopLevel::FunDecl(FunDecl {
-                    name, body, params, ..
-                }) => {
-                    let param_names: Vec<String> =
-                        params.iter().map(|(name, _)| name.clone()).collect();
-                    self.funs.insert(name.clone(), (param_names, body.clone()));
-                }
-                _ => {}
-            }
-        }
+// type Scope = HashMap<String, Value>;
 
-        let main = self.funs.get("main").expect("No main function").clone().1;
-        self.eval_block(&main, vec![]);
-    }
+// struct ProcScope {
+//     scopes: Vec<Scope>,
+// }
 
-    fn get_var(&mut self, name: &str) -> &mut Value {
-        for scope in self.vars.iter_mut().rev() {
-            if let Some(value) = scope.get_mut(name) {
-                return value;
-            }
-        }
+// impl ProcScope {
+//     fn new() -> Self {
+//         ProcScope { scopes: vec![] }
+//     }
+// }
 
-        panic!("Variable not found: {:?}", name);
-    }
+// pub struct Evaluator {
+//     program: Program,
+//     funs: HashMap<String, (Vec<String>, Block)>,
+//     stack: Vec<Value>,
+//     vars: Vec<ProcScope>,
+//     file_path: String,
+// }
 
-    fn eval_block(&mut self, block: &Block, args: Vec<(String, Value)>) -> Value {
-        let mut scope = HashMap::new();
+// impl Evaluator {
+//     pub fn new(program: Program, file_path: String) -> Evaluator {
+//         Evaluator {
+//             program,
+//             funs: HashMap::new(),
+//             stack: vec![],
+//             vars: vec![],
+//             file_path,
+//         }
+//     }
 
-        for (name, value) in args.iter() {
-            scope.insert(name.clone(), value.clone());
-        }
+//     pub fn eval(&mut self) {
+//         // Add all functions to the funcs map
+//         // TODO: Do we need to add struct decls?
+//         for top_level in self.program.iter() {
+//             if let TopLevel::ProcDecl(ProcDecl {
+//                 name,
+//                 block,
+//                 params,
+//                 span,
+//                 ret_ty,
+//             }) = top_level
+//             {
+//                 let param_names: Vec<String> =
+//                     params.iter().map(|(name, _)| name.clone()).collect();
+//                 self.funs.insert(name.clone(), (param_names, block.clone()));
+//             }
+//         }
 
-        self.vars.push(scope);
+//         let main = self.funs.get("main");
+//         if main.is_none() {
+//             error!("No main function");
+//             exit(1)
+//         }
 
-        for stmt in block.statements.iter() {
-            match stmt {
-                Stmt::VarDecl(name, _, expr) => {
-                    let value = self.eval_expr(expr);
-                    let scope = self.vars.last_mut().expect("Scope not defined");
-                    scope.insert(name.clone(), value);
-                }
-                Stmt::Assign(target, expr) => {
-                    let value = self.eval_expr(expr);
-                    match target {
-                        AssignTarget::Var(name) => {
-                            let var = self.get_var(name);
-                            *var = value;
-                        }
-                        AssignTarget::Proj(rec, field) => {
-                            let struct_var = match self.get_var(rec) {
-                                Value::Struct(r) => r,
-                                _ => panic!("Expected struct"),
-                            };
+//         let main_fn = main.unwrap().clone().1;
+//         self.eval_proc(&main_fn, vec![]);
+//     }
 
-                            let value = struct_var.get_mut(field).expect("Field not found");
-                            *value = value.clone();
-                        }
-                        AssignTarget::Index(array, idx) => {
-                            let idx = match self.eval_expr(idx) {
-                                Value::Int(i) => i as usize,
-                                _ => panic!("Expected int"),
-                            };
+//     fn get_var(&mut self, name: &str) -> &mut Value {
+//         let frame = self.vars.last_mut();
+//         if frame.is_none() {
+//             debug!("{}:{}:{} No frame defined", self.file_path, 0, 0);
+//             panic!()
+//         }
 
-                            let array = match self.get_var(array) {
-                                Value::Array(a) => a,
-                                _ => panic!("Expected array"),
-                            };
+//         let frame_value = frame.unwrap();
 
-                            array[idx] = value;
-                        }
-                    }
-                }
-                Stmt::If(expr, block) => {
-                    let cond = self.eval_expr(expr);
-                    match cond {
-                        Value::Bool(b) => {
-                            if b {
-                                self.eval_block(block, vec![]);
-                            }
-                        }
-                        _ => panic!("Expected bool"),
-                    }
-                }
-                Stmt::IfElse(expr, if_block, else_block) => {
-                    let cond = self.eval_expr(expr);
-                    match cond {
-                        Value::Bool(b) => {
-                            if b {
-                                self.eval_block(if_block, vec![]);
-                            } else {
-                                self.eval_block(else_block, vec![]);
-                            }
-                        }
-                        _ => panic!("Expected bool"),
-                    }
-                }
-                Stmt::While(cond, block) => loop {
-                    if let Value::Bool(b) = self.eval_expr(cond) {
-                        if !b {
-                            break;
-                        }
+//         for scope in frame_value.scopes.iter_mut().rev() {
+//             if let Some(value) = scope.get_mut(name) {
+//                 return value;
+//             }
+//         }
 
-                        self.eval_block(block, vec![]);
-                    } else {
-                        panic!("Expected bool");
-                    }
-                },
-                Stmt::For(var, start, end, block) => {
-                    let start = self.eval_expr(start);
-                    let end = self.eval_expr(end);
+//         error!(
+//             "{}:{}:{} Variable not found: {}",
+//             self.file_path, 0, 0, name
+//         );
+//         panic!()
+//     }
 
-                    match (start, end) {
-                        (Value::Int(start), Value::Int(end)) => {
-                            // Create a new scope for the loop variable
-                            let mut scope = HashMap::new();
-                            scope.insert(var.clone(), Value::Int(start));
-                            self.vars.push(scope);
+//     fn eval_lvalue(&self, expr: &Expr) -> Addressing {
+//         match expr {
+//             Expr::Var { name, span } => Addressing::Var {
+//                 name: name.to_string(),
+//             },
+//             _ => todo!(),
+//         }
+//     }
 
-                            loop {
-                                let value = self.get_var(var).clone();
-                                if let Value::Int(value) = value {
-                                    if value >= end {
-                                        break;
-                                    }
+//     fn eval_proc(&mut self, block: &Block, args: Vec<(String, Value)>) -> Value {
+//         let proc_scope = ProcScope::new();
 
-                                    self.eval_block(block, vec![]);
-                                    let value = self.get_var(var).clone();
-                                    if let Value::Int(value) = value {
-                                        let value = value + 1;
-                                        let scope =
-                                            self.vars.last_mut().expect("Scope not defined");
-                                        scope.insert(var.clone(), Value::Int(value));
-                                    }
-                                } else {
-                                    panic!("Expected int");
-                                }
-                            }
+//         self.vars.push(proc_scope);
+//         let (value, returns) = self.eval_block(block, args);
+//         self.vars.pop();
 
-                            self.vars.pop();
-                        }
-                        _ => panic!("Expected int"),
-                    }
-                }
-                Stmt::Call(func, args) => {
-                    if func == "#print" {
-                        for (i, arg) in args.iter().enumerate() {
-                            let value = self.eval_expr(arg);
-                            print!("{}", value.to_string());
-                            if i < args.len() - 1 {
-                                print!(" ");
-                            }
-                        }
-                        println!();
-                        continue;
-                    }
+//         value
+//     }
 
-                    let mut arg_values = vec![];
-                    for arg in args.iter() {
-                        arg_values.push(self.eval_expr(arg));
-                    }
+//     fn push_scope(&mut self) {
+//         let proc_scope = self.vars.last_mut();
 
-                    let (params, block) = self.funs.get(func).expect("Function not found").clone();
-                    self.eval_block(
-                        &block,
-                        params
-                            .iter()
-                            .zip(arg_values)
-                            .map(|(x, y)| (x.clone(), y))
-                            .collect(),
-                    );
-                }
-                Stmt::Ret(expr) => {
-                    return self.eval_expr(expr);
-                }
-            }
-        }
+//         if proc_scope.is_none() {
+//             debug!("{}:{}:{} No frame defined", self.file_path, -1, 0);
+//             panic!()
+//         }
 
-        self.vars.pop();
-        return Value::Unit;
-    }
+//         let proc_scope = proc_scope.unwrap();
+//         let scope: HashMap<String, Value> = HashMap::new();
 
-    fn eval_expr(&mut self, expr: &Expr) -> Value {
-        match expr {
-            Expr::Unit => Value::Unit,
-            Expr::Lit(Lit::Bool(b)) => Value::Bool(b.clone()),
-            Expr::Lit(Lit::Int(i)) => Value::Int(*i),
-            Expr::Lit(Lit::Str(s)) => Value::Str(s.clone()),
-            Expr::Lit(Lit::Struct(r)) => {
-                let mut struct_val = HashMap::new();
-                for (name, expr) in r.iter() {
-                    struct_val.insert(name.clone(), self.eval_expr(expr));
-                }
-                Value::Struct(struct_val)
-            }
-            Expr::Lit(Lit::Array(a)) => {
-                let mut array = vec![];
-                for expr in a.iter() {
-                    array.push(self.eval_expr(expr));
-                }
-                Value::Array(array)
-            }
-            Expr::Var(x) => self.get_var(x).clone(),
-            Expr::Bin(e1, op, e2) => {
-                if op.is_arithmetic() {
-                    let op_fun = |v1: i64, v2: i64| match op {
-                        BinOp::Add => v1 + v2,
-                        BinOp::Sub => v1 - v2,
-                        BinOp::Mul => v1 * v2,
-                        BinOp::Div => v1 / v2,
-                        _ => panic!("Expected arithmetic operator"),
-                    };
+//         proc_scope.scopes.push(scope);
+//     }
 
-                    let v1 = self.eval_expr(e1);
-                    let v2 = self.eval_expr(e2);
+//     fn pop_scope(&mut self) {
+//         let proc_scope = self.vars.last_mut();
 
-                    return match (v1, v2) {
-                        (Value::Int(i1), Value::Int(i2)) => Value::Int(op_fun(i1, i2)),
-                        _ => panic!("Expected int"),
-                    };
-                }
+//         if proc_scope.is_none() {
+//             debug!("{}:{}:{} No frame defined", self.file_path, 0, 0);
+//             panic!()
+//         }
 
-                if op.is_logical() {
-                    let op_fun = |v1: bool, v2: bool| match op {
-                        BinOp::And => v1 && v2,
-                        BinOp::Or => v1 || v2,
-                        _ => panic!("Expected logical operator"),
-                    };
+//         let proc_scope = proc_scope.unwrap();
+//         proc_scope.scopes.pop();
+//     }
 
-                    let v1 = self.eval_expr(e1);
-                    let v2 = self.eval_expr(e2);
+//     fn add_to_scope(&mut self, name: String, value: Value) {
+//         let proc_scope = self.vars.last_mut();
+//         if proc_scope.is_none() {
+//             debug!("{}:{}:{} No frame defined", self.file_path, 0, 0);
+//             panic!()
+//         }
 
-                    return match (v1, v2) {
-                        (Value::Bool(b1), Value::Bool(b2)) => Value::Bool(op_fun(b1, b2)),
-                        _ => panic!("Expected bool"),
-                    };
-                }
+//         let proc_scope = proc_scope.unwrap();
 
-                if op.is_comparison() {
-                    let op_fun = |v1: i64, v2: i64| match op {
-                        BinOp::Eq => v1 == v2,
-                        BinOp::Neq => v1 != v2,
-                        BinOp::Lt => v1 < v2,
-                        BinOp::Leq => v1 <= v2,
-                        BinOp::Gt => v1 > v2,
-                        BinOp::Geq => v1 >= v2,
-                        _ => panic!("Expected comparison operator"),
-                    };
+//         let scope = proc_scope.scopes.last_mut();
+//         if scope.is_none() {
+//             debug!("{}:{}:{} No scope defined", self.file_path, 0, 0);
+//             panic!()
+//         }
 
-                    let v1 = self.eval_expr(e1);
-                    let v2 = self.eval_expr(e2);
+//         let scope_value = scope.unwrap();
+//         scope_value.insert(name, value);
+//     }
 
-                    return match (v1, v2) {
-                        (Value::Int(i1), Value::Int(i2)) => Value::Bool(op_fun(i1, i2)),
-                        _ => panic!("Expected int"),
-                    };
-                }
+//     fn create_var(&mut self, value: Value) -> String {
 
-                panic!("Unknown operator");
-            }
-            Expr::Call(fun, args) => {
-                if fun == "#length" {
-                    let arg = args.get(0).expect("Argument not found");
-                    let arg = self.eval_expr(arg);
-                    if let Value::Array(a) = arg {
-                        return Value::Int(a.len() as i64);
-                    } else {
-                        panic!("Expected array");
-                    }
-                }
+//     }
 
-                let mut arg_values = vec![];
-                for arg in args.iter() {
-                    arg_values.push(self.eval_expr(arg));
-                }
+//     fn eval_block(&mut self, block: &Block, args: Vec<(String, Value)>) -> (Value, bool) {
+//         self.push_scope();
 
-                let (params, block) = self.funs.get(fun).expect("Function not found").clone();
-                return self.eval_block(
-                    &block,
-                    params
-                        .iter()
-                        .zip(arg_values)
-                        .map(|(x, y)| (x.clone(), y))
-                        .collect(),
-                );
-            }
-            Expr::Proj(var, field) => match self.get_var(var) {
-                Value::Struct(r) => r.get(field).expect("Field not found").clone(),
-                Value::Array(elems) => {
-                    if field == "len" {
-                        return Value::Int(elems.len() as i64);
-                    }
-                    panic!("Expected len")
-                }
-                _ => panic!("Expected struct"),
-            },
+//         for (name, value) in args.iter() {
+//             self.add_to_scope(name.clone(), value.clone());
+//         }
 
-            Expr::Index(var, idx) => {
-                let array = match self.get_var(var) {
-                    Value::Array(a) => a.clone(),
-                    _ => panic!("Expected array"),
-                };
+//         let mut return_value = Value::Unit;
+//         let mut block_returns = false;
 
-                let idx = match self.eval_expr(idx) {
-                    Value::Int(i) => i as usize,
-                    _ => panic!("Expected int"),
-                };
+//         for stmt in block.statements.iter() {
+//             match stmt {
+//                 Stmt::VarDecl {
+//                     name,
+//                     ty,
+//                     expr,
+//                     span,
+//                 } => {
+//                     let value = self.eval_expr(expr);
+//                     self.add_to_scope(name.to_string(), value);
+//                 }
+//                 Stmt::Assign { lhs, rhs, span } => {
+//                     let value = self.eval_expr(rhs);
+//                     let lvalue = self.eval_lvalue(lhs);
+//                     self.assign(lvalue, value)
+//                 }
+//                 Stmt::If {
+//                     cond,
+//                     then_block,
+//                     span,
+//                 } => {
+//                     let cond = self.eval_expr(cond);
+//                     match cond {
+//                         Value::Bool(b) => {
+//                             if b {
+//                                 let (value, returns) = self.eval_block(block, vec![]);
+//                                 if returns {
+//                                     (return_value, block_returns) = (value, returns);
+//                                     break;
+//                                 }
+//                             }
+//                         }
+//                         _ => panic!(
+//                             "{}:{}:{} Expected bool",
+//                             self.file_path, span.start_line, span.start_column
+//                         ),
+//                     }
+//                 }
+//                 Stmt::IfElse {
+//                     cond,
+//                     then_block,
+//                     else_block,
+//                     span,
+//                 } => {
+//                     let cond = self.eval_expr(cond);
+//                     match cond {
+//                         Value::Bool(b) => {
+//                             if b {
+//                                 let (value, returns) = self.eval_block(then_block, vec![]);
+//                                 if returns {
+//                                     (return_value, block_returns) = (value, returns);
+//                                     break;
+//                                 }
+//                             } else {
+//                                 let (value, returns) = self.eval_block(else_block, vec![]);
+//                                 if returns {
+//                                     (return_value, block_returns) = (value, returns);
+//                                     break;
+//                                 }
+//                             }
+//                         }
+//                         _ => panic!(
+//                             "{}:{}:{} Expected bool",
+//                             self.file_path, span.start_line, span.start_column
+//                         ),
+//                     }
+//                 }
+//                 Stmt::While { cond, block, span } => loop {
+//                     if let Value::Bool(b) = self.eval_expr(cond) {
+//                         if !b {
+//                             break;
+//                         }
 
-                array.get(idx).expect("Index out of bounds").clone()
-            }
-        }
-    }
-}
+//                         self.eval_block(block, vec![]);
+//                     } else {
+//                         panic!(
+//                             "{}:{}:{} Expected bool",
+//                             self.file_path, span.start_line, span.start_column
+//                         );
+//                     }
+//                 },
+//                 Stmt::For {
+//                     name,
+//                     from,
+//                     to,
+//                     block,
+//                     span,
+//                 } => {
+//                     let from = self.eval_expr(from);
+//                     let to = self.eval_expr(to);
+
+//                     match (from, to) {
+//                         (Value::Int(start), Value::Int(end)) => {
+//                             // Create a new scope for the loop variable
+//                             self.push_scope();
+//                             self.add_to_scope(name.clone(), Value::Int(start));
+
+//                             loop {
+//                                 let value = self.get_var(name).clone();
+//                                 if let Value::Int(value) = value {
+//                                     if value >= end {
+//                                         break;
+//                                     }
+
+//                                     self.eval_block(block, vec![]);
+//                                     let value = self.get_var(name).clone();
+//                                     if let Value::Int(value) = value {
+//                                         let value = value + 1;
+//                                         self.add_to_scope(name.clone(), Value::Int(value));
+//                                     }
+//                                 } else {
+//                                     panic!(
+//                                         "{}:{}:{} Expected int",
+//                                         self.file_path, span.start_line, span.start_column
+//                                     );
+//                                 }
+//                             }
+
+//                             self.pop_scope();
+//                         }
+//                         _ => panic!(
+//                             "{}:{}:{} Expected int",
+//                             self.file_path, span.start_line, span.start_column
+//                         ),
+//                     }
+//                 }
+//                 Stmt::Call { name, args, span } => {
+//                     if name == "#print" {
+//                         for (i, arg) in args.iter().enumerate() {
+//                             let value = self.eval_expr(arg);
+//                             print!("{}", value);
+//                             if i < args.len() - 1 {
+//                                 print!(" ");
+//                             }
+//                         }
+//                         println!();
+//                         continue;
+//                     }
+
+//                     let mut arg_values = vec![];
+//                     for arg in args.iter() {
+//                         arg_values.push(self.eval_expr(arg));
+//                     }
+
+//                     let (params, block) = self.funs.get(name).expect("Function not found").clone();
+//                     self.eval_proc(
+//                         &block,
+//                         params
+//                             .iter()
+//                             .zip(arg_values)
+//                             .map(|(x, y)| (x.clone(), y))
+//                             .collect(),
+//                     );
+//                 }
+//                 Stmt::Ret { expr, span } => {
+//                     (return_value, block_returns) = (self.eval_expr(expr), true);
+//                     break;
+//                 }
+//             }
+//         }
+
+//         self.pop_scope();
+//         (return_value, block_returns)
+//     }
+
+//     fn eval_expr(&mut self, expr: &Expr) -> Value {
+//         match expr {
+//             Expr::Unit(span) => Value::Unit,
+//             Expr::Lit(Lit::Bool(b, _)) => Value::Bool(*b),
+//             Expr::Lit(Lit::Int(i, _)) => Value::Int(*i),
+//             Expr::Lit(Lit::Str(s, _)) => Value::String(s.clone()),
+//             Expr::Lit(Lit::Struct(r, _)) => {
+//                 let mut struct_val = HashMap::new();
+//                 for (name, expr) in r.iter() {
+//                     struct_val.insert(name.clone(), self.eval_expr(expr));
+//                 }
+//                 Value::Struct(struct_val)
+//             }
+//             Expr::Lit(Lit::Array(a, _)) => {
+//                 let mut array = vec![];
+//                 for expr in a.iter() {
+//                     array.push(self.eval_expr(expr));
+//                 }
+//                 Value::Array(array)
+//             }
+//             Expr::Bin { lhs, op, rhs, span } => {
+//                 let v1 = self.eval_expr(lhs);
+//                 let v2 = self.eval_expr(rhs);
+
+//                 if op.is_arithmetic() {
+//                     match (v1, v2) {
+//                         (Value::Int(i1), Value::Int(i2)) => {
+//                             let result = match op {
+//                                 BinOp::Add => i1 + i2,
+//                                 BinOp::Sub => i1 - i2,
+//                                 BinOp::Mul => i1 * i2,
+//                                 BinOp::Div => i1 / i2,
+//                                 _ => panic!(
+//                                     "{}:{}:{} Expected arithmetic operator",
+//                                     self.file_path, span.start_line, span.start_column
+//                                 ),
+//                             };
+//                             Value::Int(result)
+//                         }
+//                         _ => panic!(
+//                             "{}:{}:{} Expected int",
+//                             self.file_path, span.start_line, span.start_column
+//                         ),
+//                     }
+//                 } else if op.is_logical() {
+//                     match (v1, v2) {
+//                         (Value::Bool(b1), Value::Bool(b2)) => {
+//                             let result = match op {
+//                                 BinOp::And => b1 && b2,
+//                                 BinOp::Or => b1 || b2,
+//                                 _ => panic!(
+//                                     "{}:{}:{} Expected logical operator",
+//                                     self.file_path, span.start_line, span.start_column
+//                                 ),
+//                             };
+//                             Value::Bool(result)
+//                         }
+//                         _ => panic!(
+//                             "{}:{}:{} Expected bool",
+//                             self.file_path, span.start_line, span.start_column
+//                         ),
+//                     }
+//                 } else if op.is_comparison() {
+//                     match (v1, v2) {
+//                         (Value::Int(i1), Value::Int(i2)) => {
+//                             let result = match op {
+//                                 BinOp::Eq => i1 == i2,
+//                                 BinOp::Neq => i1 != i2,
+//                                 BinOp::Lt => i1 < i2,
+//                                 BinOp::Leq => i1 <= i2,
+//                                 BinOp::Gt => i1 > i2,
+//                                 BinOp::Geq => i1 >= i2,
+//                                 _ => panic!(
+//                                     "{}:{}:{} Expected comparison operator",
+//                                     self.file_path, span.start_line, span.start_column
+//                                 ),
+//                             };
+//                             Value::Bool(result)
+//                         }
+//                         _ => panic!(
+//                             "{}:{}:{} Expected int",
+//                             self.file_path, span.start_line, span.start_column
+//                         ),
+//                     }
+//                 } else {
+//                     panic!(
+//                         "{}:{}:{} Unknown operator",
+//                         self.file_path, span.start_line, span.start_column
+//                     );
+//                 }
+//             }
+//             Expr::Call { name, args, span } => {
+//                 if name == "#length" {
+//                     let arg = args.first().expect("Argument not found");
+//                     let arg = self.eval_expr(arg);
+//                     if let Value::Array(a) = arg {
+//                         return Value::Int(a.len() as i64);
+//                     } else {
+//                         panic!(
+//                             "{}:{}:{} Expected array",
+//                             self.file_path, span.start_line, span.start_column
+//                         );
+//                     }
+//                 }
+
+//                 let mut arg_values = vec![];
+//                 for arg in args.iter() {
+//                     arg_values.push(self.eval_expr(arg));
+//                 }
+
+//                 let (params, block) = self.funs.get(name).expect("Function not found").clone();
+//                 self.eval_proc(
+//                     &block,
+//                     params
+//                         .iter()
+//                         .zip(arg_values)
+//                         .map(|(x, y)| (x.clone(), y))
+//                         .collect(),
+//                 )
+//             }
+//             Expr::Var { name: _, span: _ }
+//             | Expr::Proj {
+//                 expr: _,
+//                 field: _,
+//                 span: _,
+//             }
+//             | Expr::Index {
+//                 expr: _,
+//                 index: _,
+//                 span: _,
+//             } => self.eval_lvalue(expr).clone(),
+//             Expr::Ref(expr) => {
+//                 // Things we can reference, for now only vars
+//                 match *expr.clone() {
+//                     Expr::Var { name, span } => Value::Ref(name),
+//                     _ => {
+//                         error!("{}:{}:{} Expected array", self.file_path, 0, 0);
+//                         panic!()
+//                     }
+//                 }
+//             }
+//         }
+//     }
+
+//     fn addressing_get(&mut self, addressing: Addressing) -> &mut Value {
+//         match addressing {
+//             Addressing::Var { name } => {
+//                 let curr_value = self.get_var(&name);
+//                 return curr_value;
+//             }
+//             Addressing::Proj { lhs, field } => {
+//                 let x = self.addressing_get(*lhs);
+//                 if let Value::Struct(s) = x {
+//                     return s.get_mut(&field).unwrap();
+//                 }
+//                 panic!()
+//             }
+//         }
+//     }
+
+//     fn assign(&mut self, addressing: Addressing, value: Value) {
+//         let curr_value = self.addressing_get(addressing);
+//         *curr_value = value;
+//     }
+// }

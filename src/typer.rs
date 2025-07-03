@@ -1,43 +1,122 @@
+use core::cell::Ref;
+use std::any::Any;
+use std::clone;
 use std::collections::{HashMap, HashSet};
+use std::process::exit;
 
 use crate::parser::*;
+use crate::tokeniser::Span;
+
+use log::{debug, error, info, warn, Level};
 
 type Scope = HashMap<String, Type>;
 
+struct TypeError {
+    file_path: String,
+    span: Span,
+}
+
 pub struct Typer {
     pub program: Program,
-    pub vars: Vec<Scope>,
+    pub scopes: Vec<Scope>,
     pub structs: HashMap<String, HashMap<String, Type>>,
     pub funcs: HashMap<String, (HashMap<String, Type>, Type)>,
+    pub file_path: String,
+    pub errors: Vec<TypeError>
 }
 
 impl Typer {
-    pub fn new(program: Program) -> Self {
+    pub fn new(program: Program, file_path: String) -> Self {
         Typer {
             program,
-            vars: vec![],
+            scopes: Vec::new(),
             structs: HashMap::new(),
             funcs: HashMap::new(),
+            file_path,
+            errors: Vec::new()
         }
     }
 
-    pub fn tycheck(&mut self) {
+    pub fn get_func(&self, name: &str) -> Option<(HashMap<String, Type>, Type)> {
+        self.funcs.get(name).cloned()
+    }
+
+    pub fn add_func(
+        &mut self,
+        name: String,
+        params: HashMap<String, Type>,
+        ret_ty: Type,
+    ) -> Option<(HashMap<String, Type>, Type)> {
+        if self.funcs.contains_key(&name) {
+            error!(
+                "{}:{}:{} Function {:?} already defined",
+                self.file_path, 0, 0, name
+            );
+            exit(1);
+        }
+
+        let func = (params.clone(), ret_ty.clone());
+        self.funcs.insert(name, func.clone());
+        Some(func)
+    }
+
+    pub fn enter_scope(&mut self) {
+        self.scopes.push(HashMap::new());
+    }
+
+    pub fn exit_scope(&mut self) {
+        self.scopes.pop();
+    }
+
+    fn add_type(&mut self, name: &str, ty: Type) {
+        let scope = self.scopes.last_mut().expect("Scope not defined");
+        if scope.contains_key(name) {
+            error!(
+                "{}:{}:{} Variable {:?} already defined",
+                self.file_path, 0, 0, name
+            );
+            exit(1);
+        }
+        scope.insert(name.to_string(), ty);
+    }
+
+    pub fn type_check(&mut self) {
         let top_levels = self.program.clone();
         for top_level in top_levels.iter() {
-            self.tycheck_toplevel(top_level);
+            self.type_check_toplevel(top_level);
         }
     }
 
-    fn tycheck_toplevel(&mut self, top_level: &TopLevel) {
+    fn type_check_toplevel(&mut self, top_level: &TopLevel) {
         match top_level {
-            TopLevel::FunDecl(FunDecl {
+            TopLevel::ProcDecl(ProcDecl {
                 name,
                 params,
                 ret_ty,
-                body,
+                block,
+                span,
             }) => {
-                if self.funcs.contains_key(name) {
-                    panic!("Function {:?} already defined", name);
+                // Gather the parameter types
+
+                if *name == "main" {
+                    if !params.is_empty() {
+                        error!(
+                            "{}:{}:{} Main function does not accept parameters",
+                            self.file_path, span.start_line, span.start_column
+                        );
+                        exit(1);
+                    }
+
+                    if *ret_ty != Type::Unit {
+                        error!(
+                            "{}:{}:{} Main function must return unit type",
+                            self.file_path, span.start_line, span.start_column
+                        );
+                        exit(1);
+                    }
+
+                    self.type_check_block(HashMap::new(), block, Type::Unit);
+                    return;
                 }
 
                 let mut param_types = HashMap::new();
@@ -45,282 +124,264 @@ impl Typer {
                     param_types.insert(name.clone(), ty.clone());
                 }
 
-                self.funcs
-                    .insert(name.clone(), (param_types.clone(), ret_ty.clone()));
+                // Add function to the function map
+                self.add_func(name.clone(), param_types.clone(), ret_ty.clone());
 
-                let body_tys = self.tyinfer_block(body, Some(param_types.clone()));
-
-                assert!(body_tys.len() >= 1);
-
-                if body_tys.len() != 1 {
-                    panic!("Expected {:?}, got {:?}", ret_ty, body_tys);
-                }
-
-                let body_ty = body_tys.iter().next().expect("No return type");
-                if body_ty != ret_ty {
-                    panic!("Expected {:?}, got {:?}", ret_ty, body_ty);
-                }
+                // Check if the function body produces the correct return type
+                self.type_check_block(param_types.clone(), block, ret_ty.clone());
             }
-            TopLevel::RecDecl(RecDecl { name, fields }) => {
+            TopLevel::StructDecl(StructDecl {
+                name,
+                fields,
+                span: _,
+            }) => {
                 self.structs.insert(name.clone(), fields.clone());
             }
         }
     }
 
-    fn get_type(&self, name: &str) -> Option<&Type> {
-        for scope in self.vars.iter().rev() {
-            if let Some(ty) = scope.get(name) {
-                return Some(ty);
-            }
+    fn get_struct_field_type(&self, name: String, field: String) -> Type {
+        let fields = self.structs.get(&name);
+        let field_ty = fields.and_then(|f| f.get(&field).cloned());
+        if let Some(ty) = field_ty {
+            return ty;
         }
-
-        None
+        exit(1)
     }
 
-    fn tyinfer_block(
-        &mut self,
-        block: &Block,
-        params: Option<HashMap<String, Type>>,
-    ) -> HashSet<Type> {
-        self.vars.push(HashMap::new());
-        let scope = self.vars.last_mut().expect("Scope not defined");
+    fn get_type_from_expr(&mut self, expr: &Expr) -> Type {
+        match expr {
+            Expr::Ref(expr) => Type::Ref(Box::new(self.get_type_from_expr(expr))),
+            Expr::Proj { expr, field, span } => {
+                let ty = self.get_type_from_expr(expr);
+                match ty {
+                    Type::Struct(name) => self.get_struct_field_type(name, field.clone()),
+                    Type::Ref(inner_ty) => {
+                        if let Type::Struct(name) = *inner_ty {
+                            let field_ty = self.get_struct_field_type(name, field.clone());
+                            return field_ty;
+                        }
 
-        if let Some(params) = params {
-            for (name, ty) in params.iter() {
-                scope.insert(name.clone(), ty.clone());
+                        error!(
+                            "{}:{}:{} Projecting from non-struct reference {:?}",
+                            self.file_path,
+                            expr.span().start_line,
+                            expr.span().start_column,
+                            inner_ty
+                        );
+                        exit(1);
+                    }
+                    _ => {
+                        error!(
+                            "{}:{}:{} Projecting from non-struct {:?}",
+                            self.file_path,
+                            expr.span().start_line,
+                            expr.span().start_column,
+                            ty
+                        );
+                        exit(1);
+                    }
+                }
+            }
+            Expr::Index { expr, index, span } => {
+                let ty = self.get_type_from_expr(expr);
+                match ty.clone() {
+                    Type::Array(elem_ty, size) => *elem_ty,
+                    _ => {
+                        error!(
+                            "{}:{}:{} Indexing into non-array {:?}",
+                            self.file_path,
+                            expr.span().start_line,
+                            expr.span().start_column,
+                            ty
+                        );
+                        exit(1);
+                    }
+                }
+            }
+            Expr::Var { name, span } => {
+                for scope in self.scopes.iter().rev() {
+                    if let Some(ty) = scope.get(name) {
+                        return ty.clone();
+                    }
+                }
+
+                error!(
+                    "{}:{}:{} Variable {:?} not defined",
+                    self.file_path, 0, 0, name
+                );
+                exit(1);
+            }
+            _ => {
+                error!(
+                    "{}:{}:{} Cannot get type from expression {:?}",
+                    self.file_path,
+                    expr.span().start_line,
+                    expr.span().start_column,
+                    expr
+                );
+                exit(1);
             }
         }
+    }
 
-        let mut ret_tys = HashSet::new();
-        let mut early_return = false;
+    fn type_check_block(&mut self, scope: HashMap<String, Type>, block: &Block, ret_ty: Type) -> bool {
+        self.enter_scope();
+
+        for (name, ty) in scope.iter() {
+            self.add_type(name, ty.clone());
+        }
+
+        let mut has_returned = false;
+
+        let stmt_stack = block.statements.clone();
 
         for (i, stmt) in block.statements.iter().enumerate() {
+            if has_returned && i != stmt_stack.len() - 1 {
+                error!(
+                    "{}:{}:{} Unreachable code after return statement",
+                    self.file_path,
+                    stmt.span().start_line,
+                    stmt.span().start_column
+                );
+                exit(1);
+            }
+
             match stmt {
-                Stmt::VarDecl(name, ty, expr) => {
-                    self.tycheck_expr(expr, ty);
-
-                    if let Some(_) = self.get_type(name) {
-                        panic!("Variable {:?} already defined", name);
-                    }
-
-                    let scope = self.vars.last_mut().expect("Scope not defined");
-                    scope.insert(name.clone(), ty.clone());
+                Stmt::VarDecl {
+                    name,
+                    ty,
+                    expr,
+                    span,
+                } => {
+                    self.type_check_expr(expr, ty);
+                    self.add_type(name, ty.clone());
                 }
-                Stmt::Assign(target, expr) => match target {
-                    AssignTarget::Var(name) => {
-                        let ty = self.get_type(name).cloned();
-                        match ty {
-                            Some(t) => {
-                                self.tycheck_expr(expr, &t);
-                            }
-                            None => panic!("Variable {:?} not defined", name),
-                        }
-                    }
-                    AssignTarget::Proj(rec, label) => {
-                        let rec_ty = self.get_type(rec).expect("Variable not defined");
-                        if let Type::Struct(name) = rec_ty {
-                            let field_ty = self
-                                .structs
-                                .get(name)
-                                .expect("Struct not defined")
-                                .get(label)
-                                .expect("Field not found")
-                                .clone();
-                            self.tycheck_expr(expr, &field_ty);
-                        } else {
-                            panic!("Expected struct, got {:?}", rec_ty);
-                        }
-                    }
-                    AssignTarget::Index(elems, index) => {
-                        let array_ty = self.get_type(elems).expect("Variable not defined").clone();
-                        if let Type::Array(ty, _) = array_ty {
-                            self.tycheck_expr(index, &Type::Int);
-                            self.tycheck_expr(expr, &ty);
-                        } else {
-                            panic!("Expected array, got {:?}", array_ty);
-                        }
-                    }
-                },
-                Stmt::Call(name, args) => {
+                Stmt::Assign { lhs, rhs, span } => {
+                    let lhs_ty = self.get_type_from_expr(lhs);
+                    self.type_check_expr(rhs, &lhs_ty);
+                }
+                Stmt::Call { name, args, span } => {
                     if name == "#print" {
                         continue;
                     }
 
                     if name == "#length" {
-                        let arg = args.get(0).expect("Argument not found");
-                        self.tycheck_expr(
+                        let arg = args.first().expect("Argument not found");
+                        self.type_check_expr(
                             arg,
                             &Type::Array(Box::new(Type::Int), ArrayLength::Dynamic),
                         );
                     }
 
-                    let (params, _) = self
-                        .funcs
-                        .get(name)
-                        .expect(format!("Function {} not defined", name).as_str())
+                    let func_ty = self
+                        .get_func(name)
+                        .unwrap_or_else(|| panic!("Function {} not defined", name))
                         .clone();
+
+                    let (params, ret_ty) = func_ty;
 
                     // iterate over params and check that args match
                     for (i, arg) in args.iter().enumerate() {
-                        let (_, ty) = params.iter().nth(i).expect("Param not found");
-                        self.tycheck_expr(arg, ty);
-                    }
-                }
-                Stmt::If(expr, block) => {
-                    self.tycheck_expr(expr, &Type::Bool);
-                    let block_tys = self.tyinfer_block(block, None);
-                    ret_tys.extend(block_tys);
-                }
-                Stmt::IfElse(expr, if_block, else_block) => {
-                    self.tycheck_expr(expr, &Type::Bool);
-
-                    let if_tys = self.tyinfer_block(if_block, None);
-
-                    let else_tys = self.tyinfer_block(else_block, None);
-
-                    if if_block.returns && else_block.returns {
-                        ret_tys.extend(if_tys);
-                        ret_tys.extend(else_tys);
-                        early_return = true;
-
-                        if i != block.statements.len() - 1 {
-                            panic!("Unreachable code");
+                        let param = params.iter().nth(i);
+                        match param {
+                            Some((_, ty)) => {
+                                self.type_check_expr(arg, ty);
+                            }
+                            None => {
+                                error!(
+                                    "{}:{}:{} Too many arguments for function {}",
+                                    self.file_path, span.start_line, span.start_column, name
+                                );
+                                exit(1);
+                            }
                         }
-
-                        break;
-                    }
-
-                    if if_block.returns {
-                        ret_tys.extend(if_tys);
-                    }
-
-                    if else_block.returns {
-                        ret_tys.extend(else_tys);
                     }
                 }
-                Stmt::While(cond, block) => {
-                    self.tycheck_expr(cond, &Type::Bool);
-                    let block_tys = self.tyinfer_block(block, None);
-
-                    if block.returns {
-                        ret_tys.extend(block_tys);
-                    }
+                Stmt::If {
+                    cond,
+                    then_block,
+                    span,
+                } => {
+                    self.type_check_expr(cond, &Type::Bool);
+                    self.type_check_block(HashMap::new(), block, ret_ty.clone());
                 }
-                Stmt::For(var, from, to, block) => {
-                    self.tycheck_expr(from, &Type::Int);
-                    self.tycheck_expr(to, &Type::Int);
+                Stmt::IfElse {
+                    cond,
+                    then_block,
+                    else_block,
+                    span,
+                } => {
+                    self.type_check_expr(cond, &Type::Bool);
 
-                    let scope = self.vars.last_mut().expect("Scope not defined");
-                    scope.insert(var.clone(), Type::Int);
-
-                    let block_tys = self.tyinfer_block(block, None);
-
-                    if block.returns {
-                        ret_tys.extend(block_tys);
-                    }
+                    let if_returns = self.type_check_block(HashMap::new(), then_block, ret_ty.clone());
+                    let else_returns =
+                        self.type_check_block(HashMap::new(), else_block, ret_ty.clone());
+                    has_returned = if_returns && else_returns;
                 }
-                Stmt::Ret(expr) => {
-                    let ty = self.tyinfer(expr);
-                    ret_tys.insert(ty);
-                    early_return = true;
-                    if i != block.statements.len() - 1 {
-                        panic!("Unreachable code");
-                    }
-
-                    break;
+                Stmt::While { cond, block, span } => {
+                    self.type_check_expr(cond, &Type::Bool);
+                    self.type_check_block(HashMap::new(), block, ret_ty.clone());
+                }
+                Stmt::For {
+                    name,
+                    from,
+                    to,
+                    block,
+                    span,
+                } => {
+                    self.type_check_expr(from, &Type::Int);
+                    self.type_check_expr(to, &Type::Int);
+                    let mut new_scope = HashMap::new();
+                    new_scope.insert(name.clone(), Type::Int);
+                    self.type_check_block(new_scope, block, ret_ty.clone());
+                }
+                Stmt::Ret { expr, span } => {
+                    self.type_check_expr(expr, &ret_ty);
+                    has_returned = true;
                 }
             }
         }
 
-        if !early_return {
-            ret_tys.insert(Type::Unit);
-        }
+        self.exit_scope();
 
-        self.vars.pop();
-        return ret_tys;
+        has_returned
     }
 
-    fn tyinfer(&mut self, expr: &Expr) -> Type {
-        match expr {
-            Expr::Unit => Type::Unit,
-            Expr::Lit(Lit::Bool(_)) => Type::Bool,
-            Expr::Lit(Lit::Int(_)) => Type::Int,
-            Expr::Lit(Lit::Str(_)) => Type::Str,
-            Expr::Var(x) => match self.get_type(x) {
-                Some(t) => t.clone(),
-                None => panic!("Variable {:?} not defined", x),
-            },
-            Expr::Bin(e1, BinOp::Add | BinOp::Sub | BinOp::Div | BinOp::Mul, e2) => {
-                self.tycheck_expr(e1, &Type::Int);
-                self.tycheck_expr(e2, &Type::Int);
-                Type::Int
-            }
-            Expr::Bin(e1, BinOp::And | BinOp::Or, e2) => {
-                let e1_ty = self.tyinfer(e1);
-                self.tycheck_expr(e2, &e1_ty);
-                Type::Bool
-            }
-
-            Expr::Bin(e1, op, e2) => {
-                if op.is_arithmetic() {
-                    self.tycheck_expr(e1, &Type::Int);
-                    self.tycheck_expr(e2, &Type::Int);
-                    return Type::Int;
-                }
-
-                if op.is_comparison() {
-                    self.tycheck_expr(e1, &Type::Int);
-                    self.tycheck_expr(e2, &Type::Int);
-                    return Type::Bool;
-                }
-
-                if op.is_logical() {
-                    self.tycheck_expr(e1, &Type::Bool);
-                    self.tycheck_expr(e2, &Type::Bool);
-                    return Type::Bool;
-                }
-
-                panic!("Type mismatch");
-            }
-            // Expr::Un(un_op, expr) => todo!(),
-            // Expr::Call(_, vec) => todo!(),
-            _ => todo!(),
-        }
-    }
-
-    fn tycheck_expr(&mut self, expr: &Expr, target: &Type) {
+    fn type_check_expr(&mut self, expr: &Expr, target: &Type) {
         match (expr, target) {
-            (Expr::Unit, Type::Unit) => {}
-            (Expr::Lit(Lit::Bool(_)), Type::Bool) => {}
-            (Expr::Lit(Lit::Int(_)), Type::Int) => {}
-            (Expr::Lit(Lit::Str(_)), Type::Str) => {}
-            (Expr::Bin(e1, op, e2), ty) => {
+            (Expr::Unit(span), Type::Unit) => {}
+            (Expr::Lit(Lit::Bool(val, lit_span)), Type::Bool) => {}
+            (Expr::Lit(Lit::Int(val, lit_span)), Type::Int) => {}
+            (Expr::Lit(Lit::Str(val, lit_span)), Type::Str) => {}
+            (Expr::Bin { lhs, op, rhs, span }, ty) => {
                 if op.is_arithmetic() && ty == &Type::Int {
-                    self.tycheck_expr(e1, &Type::Int);
-                    self.tycheck_expr(e2, &Type::Int);
+                    self.type_check_expr(lhs, &Type::Int);
+                    self.type_check_expr(rhs, &Type::Int);
                     return;
                 }
 
                 if op.is_comparison() && ty == &Type::Bool {
-                    self.tycheck_expr(e1, &Type::Int);
-                    self.tycheck_expr(e2, &Type::Int);
+                    self.type_check_expr(lhs, &Type::Int);
+                    self.type_check_expr(rhs, &Type::Int);
                     return;
                 }
 
                 if op.is_logical() && ty == &Type::Bool {
-                    self.tycheck_expr(e1, &Type::Bool);
-                    self.tycheck_expr(e2, &Type::Bool);
+                    self.type_check_expr(lhs, &Type::Bool);
+                    self.type_check_expr(rhs, &Type::Bool);
                     return;
                 }
 
-                panic!("Type mismatch");
+                error!(
+                    "{}:{}:{} Type mismatch",
+                    self.file_path, span.start_line, span.start_column
+                );
+                exit(1);
             }
-            (Expr::Var(x), Type::Array(elem_ty, size)) => {
-                match self.get_type(x) {
-                    Some(Type::Array(ty, s)) => {
-                        if ty != elem_ty {
-                            panic!("Expected {:?}, got {:?}", elem_ty, ty);
-                        }
+            (Expr::Var { name, span }, Type::Array(elem_ty, size)) => {
+                match self.get_type_from_expr(expr) {
+                    Type::Array(ty, s) => {
                         match (size, s) {
                             (ArrayLength::Dynamic, ArrayLength::Dynamic) => {
                                 // do nothing
@@ -329,37 +390,61 @@ impl Typer {
                                 // do nothing
                             }
                             (ArrayLength::Fixed(s1), ArrayLength::Fixed(s2)) => {
-                                if s1 != s2 {
-                                    panic!(
-                                        "Expected array of length {:?}, got length {:?}",
-                                        s1, s2
+                                if *s1 != s2 {
+                                    error!(
+                                        "{}:{}:{} Expected array of length {:?}, got length {:?}",
+                                        self.file_path, span.start_line, span.start_column, s1, s2
                                     );
+                                    exit(1);
                                 }
                             }
-                            _ => panic!("Expected dynamic array, got {:?}", size),
+                            _ => {
+                                error!(
+                                    "{}:{}:{} Expected dynamic array, got {:?}",
+                                    self.file_path, span.start_line, span.start_column, size
+                                );
+                                exit(1);
+                            }
                         }
                     }
-                    _ => panic!("Expected array, got {:?}", x),
-                }
-            }
-            (Expr::Var(x), ty) => match self.get_type(x) {
-                Some(t) => {
-                    if t != ty {
-                        panic!("Type mismatch");
+                    _ => {
+                        error!(
+                            "{}:{}:{} Expected array, got {:?}",
+                            self.file_path, span.start_line, span.start_column, name
+                        );
+                        exit(1);
                     }
                 }
-                None => panic!("Variable {:?} not defined", x),
-            },
-            (Expr::Lit(Lit::Struct(lit)), Type::Struct(name)) => {
+            }
+            (Expr::Var { name, span }, ty) => {
+                let t = self.get_type_from_expr(expr);
+                if t != *ty {
+                    error!(
+                        "{}:{}:{} Type mismatch, expected {:?} got {:?}",
+                        self.file_path, span.start_line, span.start_column, ty, t
+                    );
+                    exit(1);
+                }
+            }
+            (Expr::Lit(Lit::Struct(lit, lit_span)), Type::Struct(name)) => {
                 let fields = self.structs.get(name).expect("Struct not defined").clone();
                 for (field, ty) in fields.iter() {
                     let value = lit.get(field).expect("Field not found");
-                    self.tycheck_expr(value, ty);
+                    self.type_check_expr(value, ty);
                 }
             }
 
-            (Expr::Call(func, args), ty) => {
-                let (params, ret_ty) = self.funcs.get(func).expect("Function not defined").clone();
+            (Expr::Call { name, args, span }, ty) => {
+                if name == "#length" {
+                    let arg = args.first().expect("Argument not found");
+                    self.type_check_expr(arg, &Type::Array(Box::new(Type::Int), ArrayLength::Dynamic));
+                    return;
+                }
+
+                let (params, ret_ty) = self
+                    .get_func(name)
+                    .unwrap_or_else(|| panic!("Function {} not defined", name))
+                    .clone();
 
                 // iterate over params and check that args match
                 for (i, arg) in args.iter().enumerate() {
@@ -367,64 +452,143 @@ impl Typer {
                         .iter()
                         .nth(i)
                         .expect("Missing parameter in function call");
-                    self.tycheck_expr(arg, ty);
+                    self.type_check_expr(arg, ty);
                 }
 
                 if ret_ty != *ty {
-                    panic!("Expected {:?}, got {:?}", ty, ret_ty);
+                    error!(
+                        "{}:{}:{} Expected {:?}, got {:?}",
+                        self.file_path, span.start_line, span.start_column, ty, ret_ty
+                    );
+                    exit(1);
                 }
             }
-            (Expr::Proj(rec, field), ty) => match self.get_type(rec) {
-                Some(Type::Struct(name)) => {
-                    let fields = self.structs.get(name).expect("Struct not defined").clone();
-                    let field_ty = fields.get(field).expect("Field not found");
-                    if field_ty != ty {
-                        panic!("Expected {:?}, got {:?}", ty, field_ty);
-                    }
-                }
-                Some(Type::Array(elem_ty, size)) => {
-                    if field != "len" {
-                        panic!("Expected len, got {:?}", field);
-                    }
-
-                    if ty != &Type::Int {
-                        panic!("Expected Int, got {:?}", ty);
-                    }
-                }
-                _ => panic!("Expected struct, got {:?}", rec),
-            },
-            (Expr::Lit(Lit::Array(lit)), Type::Array(ty, size)) => {
+            (Expr::Proj { expr, field, span }, ty) => {
+                let rec_ty = self.get_type_from_expr(expr);
+            }
+            (Expr::Lit(Lit::Array(lit, span)), Type::Array(ty, size)) => {
                 match size {
                     ArrayLength::Dynamic => {}
                     ArrayLength::Fixed(s) => {
                         if s != &lit.len() {
-                            panic!(
-                                "Expected array of length {:?}, got length {:?}",
+                            error!(
+                                "{}:{}:{} Expected array of length {:?}, got length {:?}",
+                                self.file_path,
+                                span.start_line,
+                                span.start_column,
                                 s,
                                 lit.len()
                             );
+                            exit(1);
                         }
                     }
                 }
 
                 for elem in lit.iter() {
-                    self.tycheck_expr(elem, ty);
+                    self.type_check_expr(elem, ty);
                 }
             }
-            (Expr::Index(var, idx), ty) => {
-                let var_ty = self.get_type(var).expect("Variable not defined");
+            (Expr::Index { expr, index, span }, ty) => {
+                let var_ty = self.get_type_from_expr(expr);
                 match var_ty {
                     Type::Array(elem_ty, _) => {
                         if elem_ty.as_ref() != ty {
-                            panic!("Expected {:?}, got {:?}", ty, elem_ty);
+                            error!(
+                                "{}:{}:{} Expected {:?}, got {:?}",
+                                self.file_path, span.start_line, span.start_column, ty, elem_ty
+                            );
+                            exit(1);
                         }
                     }
-                    _ => panic!("Expected array, got {:?}", var_ty),
+                    _ => {
+                        error!(
+                            "{}:{}:{} Expected array, got {:?}",
+                            self.file_path, span.start_line, span.start_column, var_ty
+                        );
+                        exit(1);
+                    }
                 }
 
-                self.tycheck_expr(idx, &Type::Int);
+                self.type_check_expr(index, &Type::Int);
             }
-            _ => panic!("Expected {:?}, got expression {:?}", target, expr),
+
+            (Expr::Ref(expr), Type::Ref(ty)) => {
+                self.type_check_expr(expr, ty);
+            }
+            _ => {
+                error!(
+                    "{}:{}:{} Expected {:?}, got expression {:?}",
+                    self.file_path,
+                    expr.span().start_line,
+                    expr.span().start_column,
+                    target,
+                    expr
+                );
+                exit(1);
+            }
         };
+    }
+}
+
+// Add helper methods to get spans from AST nodes
+impl Stmt {
+    fn span(&self) -> &Span {
+        match self {
+            Stmt::VarDecl {
+                span,
+                name,
+                ty,
+                expr,
+            } => span,
+            Stmt::Assign { span, lhs, rhs } => span,
+            Stmt::If {
+                cond,
+                then_block,
+                span,
+            } => span,
+            Stmt::IfElse {
+                cond,
+                then_block,
+                else_block,
+                span,
+            } => span,
+            Stmt::While { cond, block, span } => span,
+            Stmt::For {
+                name,
+                from,
+                to,
+                block,
+                span,
+            } => span,
+            Stmt::Call { name, args, span } => span,
+            Stmt::Ret { expr, span } => span,
+        }
+    }
+}
+
+impl Lit {
+    fn span(&self) -> &Span {
+        match self {
+            Lit::Int(_, span) => span,
+            Lit::Str(_, span) => span,
+            Lit::Bool(_, span) => span,
+            Lit::Struct(hash_map, span) => span,
+            Lit::Array(exprs, span) => span,
+        }
+    }
+}
+
+impl Expr {
+    fn span(&self) -> &Span {
+        match self {
+            Expr::Unit(span) => span,
+            Expr::Ref(expr) => expr.span(),
+            Expr::Var { name, span } => span,
+            Expr::Bin { lhs, op, rhs, span } => span,
+            Expr::Call { name, args, span } => span,
+            Expr::Proj { expr, field, span } => span,
+            Expr::Index { expr, index, span } => span,
+            Expr::Lit(lit) => todo!(),
+        }
     }
 }

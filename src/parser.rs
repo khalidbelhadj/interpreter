@@ -1,25 +1,116 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, process::exit};
 
 use crate::tokeniser::*;
+use log::{debug, error};
 
 pub type Program = Vec<TopLevel>;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum TopLevel {
-    RecDecl(RecDecl),
-    FunDecl(FunDecl),
+    StructDecl(StructDecl),
+    ProcDecl(ProcDecl),
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub struct RecDecl {
+pub struct StructDecl {
     pub name: String,
     pub fields: HashMap<String, Type>,
+    pub span: Span,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub enum ArrayLength {
-    Fixed(usize),
-    Dynamic,
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct ProcDecl {
+    pub name: String,
+    pub params: HashMap<String, Type>,
+    pub ret_ty: Type,
+    pub block: Block,
+    pub span: Span,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct Block {
+    pub statements: Vec<Stmt>,
+    pub span: Span,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum Stmt {
+    VarDecl {
+        name: String,
+        ty: Type,
+        expr: Expr,
+        span: Span,
+    },
+    Assign {
+        lhs: Expr,
+        rhs: Expr,
+        span: Span,
+    },
+    If {
+        cond: Expr,
+        then_block: Block,
+        span: Span,
+    },
+    IfElse {
+        cond: Expr,
+        then_block: Block,
+        else_block: Block,
+        span: Span,
+    },
+    While {
+        cond: Expr,
+        block: Block,
+        span: Span,
+    },
+    For {
+        name: String,
+        from: Expr,
+        to: Expr,
+        block: Block,
+        span: Span,
+    },
+    Call {
+        name: String,
+        args: Vec<Expr>,
+        span: Span,
+    },
+    Ret {
+        expr: Expr,
+        span: Span,
+    },
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum Expr {
+    Unit(Span),
+    Lit(Lit),
+    Var {
+        name: String,
+        span: Span,
+    },
+    Bin {
+        lhs: Box<Expr>,
+        op: BinOp,
+        rhs: Box<Expr>,
+        span: Span,
+    },
+    Call {
+        name: String,
+        args: Vec<Expr>,
+        span: Span,
+    },
+
+    Proj {
+        expr: Box<Expr>,
+        field: String,
+        span: Span,
+    },
+    Index {
+        expr: Box<Expr>,
+        index: Box<Expr>,
+        span: Span,
+    },
+    Ref(Box<Expr>),
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
@@ -30,59 +121,22 @@ pub enum Type {
     Bool,
     Struct(String),
     Array(Box<Type>, ArrayLength),
+    Ref(Box<Type>),
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct Block {
-    pub statements: Vec<Stmt>,
-    pub returns: bool,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct FunDecl {
-    pub name: String,
-    pub params: HashMap<String, Type>,
-    pub ret_ty: Type,
-    pub body: Block,
-}
-
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub enum Stmt {
-    VarDecl(String, Type, Expr),
-    Assign(AssignTarget, Expr),
-    If(Expr, Block),
-    IfElse(Expr, Block, Block),
-    While(Expr, Block),
-    For(String, Expr, Expr, Block),
-    Call(String, Vec<Expr>),
-    Ret(Expr),
-}
-
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub enum AssignTarget {
-    Var(String),
-    Proj(String, String),
-    Index(String, Box<Expr>),
-}
-
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub enum Expr {
-    Unit,
-    Lit(Lit),
-    Var(String),
-    Bin(Box<Expr>, BinOp, Box<Expr>),
-    Call(String, Vec<Expr>),
-    Proj(String, String),
-    Index(String, Box<Expr>),
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+pub enum ArrayLength {
+    Fixed(usize),
+    Dynamic,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Lit {
-    Int(i64),
-    Str(String),
-    Bool(bool),
-    Struct(HashMap<String, Expr>),
-    Array(Vec<Expr>),
+    Int(i64, Span),
+    Str(String, Span),
+    Bool(bool, Span),
+    Struct(HashMap<String, Expr>, Span),
+    Array(Vec<Expr>, Span),
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
@@ -103,26 +157,57 @@ pub enum BinOp {
     Or,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Prec {
+    Base, // Lowest precedence for non-operators
+    Dot,
+    Index,
+    Call,
+    LogicalOr,      // ||
+    LogicalAnd,     // &&
+    Equality,       // ==, !=
+    Relational,     // <, >, <=, >=
+    Additive,       // +, -
+    Multiplicative, // *, /
+}
+
+impl Expr {
+    pub fn is_lvalue(&self) -> bool {
+        matches!(
+            self,
+            Expr::Var { name: _, span: _ }
+                | Expr::Proj {
+                    expr: _,
+                    field: _,
+                    span: _
+                }
+                | Expr::Index {
+                    expr: _,
+                    index: _,
+                    span: _
+                }
+        )
+    }
+
+    pub fn is_rvalue(&self) -> bool {
+        !self.is_lvalue()
+    }
+}
+
 impl BinOp {
     pub fn is_arithmetic(&self) -> bool {
-        match self {
-            BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div => true,
-            _ => false,
-        }
+        matches!(self, BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div)
     }
 
     pub fn is_logical(&self) -> bool {
-        match self {
-            BinOp::And | BinOp::Or => true,
-            _ => false,
-        }
+        matches!(self, BinOp::And | BinOp::Or)
     }
 
     pub fn is_comparison(&self) -> bool {
-        match self {
-            BinOp::Eq | BinOp::Neq | BinOp::Lt | BinOp::Leq | BinOp::Gt | BinOp::Geq => true,
-            _ => false,
-        }
+        matches!(
+            self,
+            BinOp::Eq | BinOp::Neq | BinOp::Lt | BinOp::Leq | BinOp::Gt | BinOp::Geq
+        )
     }
 }
 
@@ -139,29 +224,17 @@ impl BinOp {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Prec {
-    Base, // Lowest precedence for non-operators
-    Dot,
-    Index,
-    Call,
-    LogicalOr,      // ||
-    LogicalAnd,     // &&
-    Equality,       // ==, !=
-    Relational,     // <, >, <=, >=
-    Additive,       // +, -
-    Multiplicative, // *, /
-}
-
 pub struct Parser {
+    file_path: String,
     tokens: Vec<Token>,
     current: usize,
     pub program: Program,
 }
 
 impl Parser {
-    pub fn new(tokens: Vec<Token>) -> Parser {
+    pub fn new(file_path: String, tokens: Vec<Token>) -> Parser {
         Parser {
+            file_path,
             tokens,
             current: 0,
             program: vec![],
@@ -173,338 +246,442 @@ impl Parser {
     }
 
     fn peek(&self) -> Token {
-        self.tokens.get(self.current).cloned().unwrap_or(Token::EOF)
+        self.tokens
+            .get(self.current)
+            .cloned()
+            .unwrap_or(Token::new(TokenType::EOF, Span::new(0, 0, 0, 0)))
     }
 
     fn advance(&mut self) {
         self.current += 1;
     }
 
-    fn consume(&mut self, expected: Token) {
-        if self.peek() == expected {
+    fn consume(&mut self, expected: TokenType) {
+        if self.peek().token_type == expected {
             self.current += 1;
         } else {
-            // print last 10 tokens
-            let start = if self.current >= 10 {
-                self.current - 10
-            } else {
-                0
-            };
-            let end = self.current + 10;
-            let tokens = &self.tokens[start..end];
-            println!("Tokens: {:?}", tokens);
-            panic!("Expected token {:?}, got {:?}", expected, self.peek());
+            let tok = self.peek();
+            error!(
+                "{}:{}:{} Expected token {}, got {}",
+                self.file_path,
+                tok.span.start_line,
+                tok.span.start_column,
+                expected,
+                tok.token_type
+            );
+            exit(1);
         }
     }
 
     fn consume_identifier(&mut self) -> String {
-        if let Token::Ident(name) = self.peek() {
+        let tok = self.peek();
+        if let TokenType::Ident(name) = tok.token_type {
             self.current += 1;
-            name.clone()
-        } else {
-            panic!("Expected identifier, got {:?}", self.peek());
+            return name.clone();
         }
+
+        error!(
+            "{}:{}:{} Expected identifier, got {}",
+            self.file_path, tok.span.start_line, tok.span.start_column, tok.token_type
+        );
+        exit(1);
     }
 
     pub fn parse(&mut self) {
         while !self.is_at_end() {
-            let name = match self.peek() {
-                Token::Ident(name) => name,
-                Token::EOF => break,
-                _ => panic!("Expected identifier, got {:?}", self.peek()),
-            };
-
-            self.advance();
+            // Get the top level identifier name, either a struct or proc
+            let name = self.consume_identifier();
 
             // Consume compile time assign operator
-            self.consume(Token::Colon);
-            self.consume(Token::Colon);
+            self.consume(TokenType::Colon);
+            self.consume(TokenType::Colon);
 
-            let tok = self.peek();
+            let tok = self.peek().token_type;
             match tok {
-                Token::LeftParen => {
-                    let fun = self.parse_func(name);
-                    self.program.push(TopLevel::FunDecl(fun));
+                // Proc decleration
+                TokenType::LeftParen => {
+                    let proc_decl = self.parse_proc(name);
+                    self.program.push(TopLevel::ProcDecl(proc_decl));
                 }
-                Token::Struct => {
-                    let struct_def = self.parse_struct(name);
-                    self.program.push(TopLevel::RecDecl(struct_def));
+                // Struct decleration
+                TokenType::Struct => {
+                    let struct_decl = self.parse_struct(name);
+                    self.program.push(TopLevel::StructDecl(struct_decl));
                 }
-                _ => panic!(
-                    "Expected top-level function or struct decleration, got {:?}",
-                    tok
-                ),
+                _ => {
+                    let token = self.peek();
+                    error!(
+                        "{}:{}:{} Expected top-level procedure or struct declaration, got {}",
+                        self.file_path, token.span.start_line, token.span.start_column, tok
+                    );
+                    exit(1);
+                }
             }
         }
     }
 
     fn parse_type(&mut self) -> Type {
-        let ty = self.peek();
+        let ty = self.peek().token_type;
         match ty {
-            Token::Int => {
+            TokenType::Ampersand => {
+                self.advance();
+                let inner_ty = self.parse_type();
+                Type::Ref(Box::new(inner_ty))
+            }
+            TokenType::Int => {
                 self.advance();
                 Type::Int
             }
-            Token::String => {
+            TokenType::String => {
                 self.advance();
                 Type::Str
             }
-            Token::Bool => {
+            TokenType::Bool => {
                 self.advance();
                 Type::Bool
             }
-            Token::Unit => {
+            TokenType::Unit => {
                 self.advance();
                 Type::Unit
             }
-            Token::Ident(name) => {
+            TokenType::Ident(name) => {
                 self.advance();
                 Type::Struct(name)
             }
-            Token::LeftBracket => {
+            TokenType::LeftBracket => {
                 self.advance();
+
+                // Get the element type
                 let elem_ty = self.parse_type();
-                self.consume(Token::Comma);
-                // Parse int literal for array size
-                match self.peek() {
-                    Token::Integer(size) => {
+
+                let tok = self.peek();
+
+                // Fixed size array
+                if let TokenType::Comma = tok.token_type {
+                    self.advance();
+                    if let TokenType::Integer(length) = self.peek().token_type {
                         self.advance();
-                        if size <= 0 {
-                            panic!("Array size must be greater than 0");
+                        if length <= 0 {
+                            let tok = self.peek();
+                            error!(
+                                "{}:{}:{} Array length must be greater than 0",
+                                self.file_path, tok.span.start_line, tok.span.start_column
+                            );
+                            exit(1);
                         }
 
-                        self.consume(Token::RightBracket);
-                        return Type::Array(Box::new(elem_ty), ArrayLength::Fixed(size as usize));
-                    }
-                    Token::QuestionMark => {
                         self.advance();
-                        self.consume(Token::RightBracket);
-                        return Type::Array(Box::new(elem_ty), ArrayLength::Dynamic);
+                        self.consume(TokenType::RightBracket);
+                        return Type::Array(Box::new(elem_ty), ArrayLength::Fixed(length as usize));
                     }
-                    _ => {
-                        panic!(
-                            "Expected integer literal for array size, got {:?}",
-                            self.peek()
-                        );
-                    }
+
+                    let tok = self.peek();
+                    error!(
+                        "{}:{}:{} Expected integer literal for array length, got {}",
+                        self.file_path, tok.span.start_line, tok.span.start_column, tok.token_type
+                    );
+                    exit(1);
                 }
+
+                // Dynamic size array
+                if let TokenType::RightBracket = tok.token_type {
+                    self.advance();
+                    return Type::Array(Box::new(elem_ty), ArrayLength::Dynamic);
+                }
+
+                error!(
+                    "{}:{}:{} Expected integer literal for array length, got {}",
+                    self.file_path, tok.span.start_line, tok.span.start_column, tok.token_type
+                );
+                exit(1);
             }
-            _ => panic!("Expected type, got {:?}", self.peek()),
+            _ => {
+                let tok = self.peek();
+                error!(
+                    "{}:{}:{} Expected type, got {}",
+                    self.file_path, tok.span.start_line, tok.span.start_column, tok.token_type
+                );
+                exit(1);
+            }
         }
     }
 
-    fn parse_struct(&mut self, name: String) -> RecDecl {
-        self.consume(Token::Struct);
-        self.consume(Token::LeftBrace);
+    fn parse_struct(&mut self, name: String) -> StructDecl {
+        let start_span = self.peek().span;
+        self.consume(TokenType::Struct);
+        self.consume(TokenType::LeftBrace);
 
         let mut fields = HashMap::new();
         loop {
-            if self.peek() == Token::RightBrace {
+            if self.peek().token_type == TokenType::RightBrace {
                 break;
             }
 
-            let label = self.consume_identifier();
-            let ty = self.parse_type();
-            fields.insert(label, ty);
+            let field_name = self.consume_identifier();
+            let field_ty = self.parse_type();
+            fields.insert(field_name, field_ty);
 
-            if self.peek() == Token::RightBrace {
+            // This ensures that there is no trailing comma
+            if self.peek().token_type == TokenType::RightBrace {
                 break;
             }
 
-            self.consume(Token::Comma);
+            self.consume(TokenType::Comma);
         }
 
-        self.consume(Token::RightBrace);
-        RecDecl { name, fields }
+        let end_span = self.peek().span;
+        self.consume(TokenType::RightBrace);
+        StructDecl {
+            name,
+            fields,
+            span: Span::join(start_span, end_span),
+        }
     }
 
-    fn parse_func(&mut self, name: String) -> FunDecl {
-        self.consume(Token::LeftParen);
+    fn parse_proc(&mut self, name: String) -> ProcDecl {
+        let start_span = self.peek().span;
+        self.consume(TokenType::LeftParen);
 
         let mut params = HashMap::new();
         loop {
             // Right paren or "<param> <type>"
-            if self.peek() == Token::RightParen {
+            if self.peek().token_type == TokenType::RightParen {
                 break;
             }
-            let param = self.consume_identifier();
-            let ty = self.parse_type();
-            params.insert(param, ty);
+            let param_name = self.consume_identifier();
+            let param_ty = self.parse_type();
+            params.insert(param_name, param_ty);
 
             // Right paren or comma
-            if self.peek() == Token::RightParen {
+            if self.peek().token_type == TokenType::RightParen {
                 break;
             }
 
-            self.consume(Token::Comma);
+            self.consume(TokenType::Comma);
         }
 
-        self.consume(Token::RightParen);
+        self.consume(TokenType::RightParen);
 
-        FunDecl {
+        let ret_ty = self.parse_type();
+        let block = self.parse_block();
+        let end_span = block.span.clone();
+
+        ProcDecl {
             name,
             params,
-            ret_ty: self.parse_type(),
-            body: self.parse_block(),
+            ret_ty,
+            block,
+            span: Span::join(start_span, end_span),
         }
     }
 
     fn parse_arguments(&mut self) -> Vec<Expr> {
-        self.consume(Token::LeftParen);
+        self.consume(TokenType::LeftParen);
 
         let mut args = vec![];
         loop {
-            // Right paren or "<param> <type>"
-            if self.peek() == Token::RightParen {
+            // Right paren or arg expression
+            if self.peek().token_type == TokenType::RightParen {
                 break;
             }
 
-            let expr = self.parse_expr();
-            args.push(expr);
+            let arg_expr = self.parse_expr();
+            args.push(arg_expr);
 
-            // Right paren or comma
-            if self.peek() == Token::RightParen {
+            // Prevents trailing comma
+            if self.peek().token_type == TokenType::RightParen {
                 break;
             }
 
-            self.consume(Token::Comma);
+            self.consume(TokenType::Comma);
         }
 
-        self.consume(Token::RightParen);
+        self.consume(TokenType::RightParen);
         args
     }
 
     fn parse_block(&mut self) -> Block {
-        self.consume(Token::LeftBrace);
+        let start_span = self.peek().span.clone();
+        self.consume(TokenType::LeftBrace);
 
         let mut statements = vec![];
-        let mut returns = false;
 
-        while self.peek() != Token::RightBrace {
+        while self.peek().token_type != TokenType::RightBrace {
             let statement = self.peek();
-            match statement {
+            match statement.token_type {
                 // Statements
-                Token::Let => {
-                    self.consume(Token::Let);
+                TokenType::Let => {
+                    let span = statement.span.clone();
+                    self.consume(TokenType::Let);
                     let name = self.consume_identifier();
                     let ty = self.parse_type();
-                    self.consume(Token::Equal);
+                    self.consume(TokenType::Equal);
                     let expr = self.parse_expr();
-                    self.consume(Token::Semicolon);
-                    statements.push(Stmt::VarDecl(name, ty, expr));
+                    self.consume(TokenType::Semicolon);
+                    statements.push(Stmt::VarDecl {
+                        name,
+                        ty,
+                        expr,
+                        span,
+                    });
                 }
-                Token::If => {
-                    self.consume(Token::If);
+                TokenType::If => {
+                    let span = statement.span.clone();
+                    self.consume(TokenType::If);
                     let cond = self.parse_condition();
-                    println!("cond: {:?}", cond);
-                    let if_block = self.parse_block();
+                    let then_block = self.parse_block();
 
-                    if self.peek() == Token::Else {
-                        self.consume(Token::Else);
+                    if self.peek().token_type == TokenType::Else {
+                        self.consume(TokenType::Else);
                         let else_block = self.parse_block();
-                        statements.push(Stmt::IfElse(cond, if_block, else_block));
+                        statements.push(Stmt::IfElse {
+                            cond,
+                            then_block,
+                            else_block,
+                            span,
+                        });
                     } else {
-                        statements.push(Stmt::If(cond, if_block));
+                        statements.push(Stmt::If {
+                            cond,
+                            then_block,
+                            span,
+                        });
                     }
                 }
-                Token::While => {
-                    self.consume(Token::While);
+                TokenType::While => {
+                    let span = statement.span.clone();
+                    self.consume(TokenType::While);
                     let cond = self.parse_condition();
                     let block = self.parse_block();
-                    statements.push(Stmt::While(cond, block));
+                    statements.push(Stmt::While { cond, block, span });
                 }
-                Token::For => {
-                    self.consume(Token::For);
+                TokenType::For => {
+                    let span = statement.span.clone();
+                    self.consume(TokenType::For);
                     let name = self.consume_identifier();
-                    self.consume(Token::In);
+                    self.consume(TokenType::In);
 
                     let from = self.parse_expr();
-                    self.consume(Token::DotDot);
-                    let to = self.parse_expr();
+                    self.consume(TokenType::DotDot);
+                    let to = self.parse_condition();
 
                     let block = self.parse_block();
-                    statements.push(Stmt::For(name, from, to, block));
+                    statements.push(Stmt::For {
+                        name,
+                        from,
+                        to,
+                        block,
+                        span,
+                    });
                 }
-                Token::Return => {
-                    returns = true;
-                    self.consume(Token::Return);
-                    let expr = if self.peek() == Token::Semicolon {
-                        Expr::Unit
+                TokenType::Return => {
+                    let span = statement.span.clone();
+                    self.consume(TokenType::Return);
+                    let expr = if self.peek().token_type == TokenType::Semicolon {
+                        Expr::Unit(span.clone())
                     } else {
                         self.parse_expr()
                     };
 
-                    self.consume(Token::Semicolon);
-                    statements.push(Stmt::Ret(expr));
+                    self.consume(TokenType::Semicolon);
+                    statements.push(Stmt::Ret { expr, span });
                 }
-                // Try to parse expressions
+                // Try to parse expression for call or assignment
                 _ => {
                     let expr = self.parse_expr();
-                    match self.peek() {
-                        Token::Semicolon => {
-                            // Check that it's a function call
-                            self.consume(Token::Semicolon);
-                            if let Expr::Call(name, args) = expr {
-                                statements.push(Stmt::Call(name, args));
+                    match self.peek().token_type {
+                        TokenType::Semicolon => {
+                            // Check that it's a procedure call
+                            let stmt_span = self.peek().span.clone();
+                            self.consume(TokenType::Semicolon);
+                            if let Expr::Call { name, args, span } = expr {
+                                statements.push(Stmt::Call { name, args, span });
                             } else {
-                                panic!("Expected function call, got {:?}", expr);
+                                let tok = self.peek();
+                                error!(
+                                    "{}:{}:{} Expected statement, got {}",
+                                    self.file_path,
+                                    tok.span.start_line,
+                                    tok.span.start_column,
+                                    tok.token_type
+                                );
+                                exit(1);
                             }
                         }
-                        Token::Equal => {
+                        TokenType::Equal => {
                             // Check that the expression is an lvalue
-                            self.consume(Token::Equal);
-                            let target = match expr {
-                                Expr::Var(name) => AssignTarget::Var(name),
-                                Expr::Proj(name, label) => AssignTarget::Proj(name, label),
-                                Expr::Index(name, index) => AssignTarget::Index(name, index),
-                                _ => panic!("Expected lvalue, got {:?}", expr),
-                            };
+                            let span = self.peek().span.clone();
+                            self.consume(TokenType::Equal);
+                            let lhs = expr;
+                            if !lhs.is_lvalue() {
+                                let tok = self.peek();
+                                error!(
+                                    "{}:{}:{} Expected lvalue, got {}",
+                                    self.file_path,
+                                    tok.span.start_line,
+                                    tok.span.start_column,
+                                    tok.token_type
+                                );
+                                exit(1);
+                            }
+
                             // Parse the right hand side and check for semicolon
                             let rhs = self.parse_expr();
-                            self.consume(Token::Semicolon);
-                            statements.push(Stmt::Assign(target, rhs));
+                            self.consume(TokenType::Semicolon);
+                            statements.push(Stmt::Assign { lhs, rhs, span });
                         }
                         _ => {
-                            panic!(
-                                "Expected function call or assignment, got {:?}",
-                                self.peek()
+                            let tok = self.peek();
+                            error!(
+                                "{}:{}:{} Expected statement, got {}",
+                                self.file_path,
+                                tok.span.start_line,
+                                tok.span.start_column,
+                                tok.token_type
                             );
+                            exit(1);
                         }
                     }
                 }
             }
         }
 
-        self.consume(Token::RightBrace);
+        let end_span = self.peek().span.clone();
+        self.consume(TokenType::RightBrace);
         Block {
             statements,
-            returns,
+            span: Span::new(
+                start_span.start_line,
+                start_span.start_column,
+                end_span.end_line,
+                end_span.end_column,
+            ),
         }
     }
 
     fn parse_struct_literal(&mut self) -> HashMap<String, Expr> {
-        self.consume(Token::LeftBrace);
+        self.consume(TokenType::LeftBrace);
         let mut fields = HashMap::new();
         loop {
             // Right brace or "<field> = <expression>"
-            if self.peek() == Token::RightBrace {
+            if self.peek().token_type == TokenType::RightBrace {
                 break;
             }
 
-            let field = self.consume_identifier();
-            self.consume(Token::Equal);
-            let expr = self.parse_expr();
-            fields.insert(field, expr);
+            let field_name = self.consume_identifier();
+            self.consume(TokenType::Equal);
+            let field_expr = self.parse_expr();
+            fields.insert(field_name, field_expr);
 
             // Right brace or comma
-            if self.peek() == Token::RightBrace {
+            if self.peek().token_type == TokenType::RightBrace {
                 break;
             }
 
-            self.consume(Token::Comma);
+            self.consume(TokenType::Comma);
         }
 
-        self.consume(Token::RightBrace);
+        self.consume(TokenType::RightBrace);
         fields
     }
 
@@ -517,93 +694,172 @@ impl Parser {
     }
 
     fn parse_expr_prec(&mut self, prec: Prec, is_condition: bool) -> Expr {
-        let mut left = match self.peek() {
-            Token::Integer(n) => {
+        let mut lhs = match self.peek().token_type {
+            TokenType::Integer(n) => {
+                let span = self.peek().span.clone();
                 self.advance();
-                Expr::Lit(Lit::Int(n))
+                Expr::Lit(Lit::Int(n, span.clone()))
             }
-            Token::Hash | Token::Ident(_) => {
-                let name = if let Token::Ident(name) = self.peek() {
+            TokenType::Hash | TokenType::Ident(_) => {
+                // Identifier
+                let start_span = self.peek().span.clone();
+                let name = if let TokenType::Ident(name) = self.peek().token_type {
                     self.advance();
                     name
                 } else {
                     self.advance();
-                    if let Token::Ident(name) = self.peek() {
+                    if let TokenType::Ident(name) = self.peek().token_type {
                         self.advance();
                         format!("#{name}")
                     } else {
-                        panic!("Expected identifier, got {:?}", self.peek());
+                        let tok = self.peek();
+                        error!(
+                            "{}:{}:{} Expected identifier, got {}",
+                            self.file_path,
+                            tok.span.start_line,
+                            tok.span.start_column,
+                            tok.token_type
+                        );
+                        exit(1);
                     }
                 };
 
-                match self.peek() {
-                    Token::LeftParen => {
+                match self.peek().token_type {
+                    TokenType::LeftParen => {
                         let args = self.parse_arguments();
-                        Expr::Call(name, args)
+                        let end_span = self.peek().span.clone();
+                        Expr::Call {
+                            name,
+                            args,
+                            span: Span::new(
+                                start_span.start_line,
+                                start_span.start_column,
+                                end_span.end_line,
+                                end_span.end_column,
+                            ),
+                        }
                     }
-                    Token::Dot => {
-                        self.advance();
-                        let label = self.consume_identifier();
-                        Expr::Proj(name, label)
-                    }
-                    Token::LeftBracket => {
-                        self.advance();
-                        let index = self.parse_expr();
-                        self.consume(Token::RightBracket);
-                        Expr::Index(name, Box::new(index))
-                    }
-                    Token::LeftBrace => {
+                    TokenType::LeftBrace => {
+                        // To disambiguate between struct literal and blocks
                         if is_condition {
-                            return Expr::Var(name);
+                            return Expr::Var {
+                                name,
+                                span: start_span,
+                            };
                         }
 
                         let fields = self.parse_struct_literal();
-                        Expr::Lit(Lit::Struct(fields))
+                        let end_span = self.peek().span.clone();
+                        Expr::Lit(Lit::Struct(fields, Span::join(start_span, end_span)))
                     }
-                    _ => Expr::Var(name),
+                    _ => Expr::Var {
+                        name,
+                        span: start_span,
+                    },
                 }
             }
-            Token::StringLiteral(s) => {
+            TokenType::StringLiteral(s) => {
+                let span = self.peek().span.clone();
                 self.advance();
-                Expr::Lit(Lit::Str(s))
+                Expr::Lit(Lit::Str(s, span.clone()))
             }
-            Token::True => {
+            TokenType::True => {
+                let span = self.peek().span.clone();
                 self.advance();
-                Expr::Lit(Lit::Bool(true))
+                Expr::Lit(Lit::Bool(true, span.clone()))
             }
-            Token::False => {
+            TokenType::False => {
+                let span = self.peek().span.clone();
                 self.advance();
-                Expr::Lit(Lit::Bool(false))
+                Expr::Lit(Lit::Bool(false, span.clone()))
             }
-            Token::LeftParen => {
+            TokenType::LeftParen => {
+                let start_span = self.peek().span.clone();
                 self.advance();
                 let expr = self.parse_expr(); // Parse inner expression
-                if let Token::RightParen = self.peek() {
+                if let TokenType::RightParen = self.peek().token_type {
+                    let end_span = self.peek().span.clone();
                     self.advance();
                     expr
                 } else {
-                    panic!("Expected ')' after expression"); // Replace with proper error handling
+                    let tok = self.peek();
+                    error!(
+                        "{}:{}:{} Expected ')' after expression",
+                        self.file_path, tok.span.start_line, tok.span.start_column
+                    );
+                    exit(1);
                 }
             }
-            Token::LeftBracket => {
+            TokenType::LeftBracket => {
+                let start_span = self.peek().span.clone();
                 self.advance();
-                let mut elems = vec![];
-                while self.peek() != Token::RightBracket {
-                    let expr = self.parse_expr();
-                    elems.push(expr);
+                let mut elem_exprs = vec![];
+                while self.peek().token_type != TokenType::RightBracket {
+                    let elem_expr = self.parse_expr();
+                    elem_exprs.push(elem_expr);
 
-                    if self.peek() == Token::RightBracket {
+                    if self.peek().token_type == TokenType::RightBracket {
                         break;
                     }
 
-                    self.consume(Token::Comma);
+                    self.consume(TokenType::Comma);
                 }
 
-                self.consume(Token::RightBracket);
-                Expr::Lit(Lit::Array(elems))
+                let end_span = self.peek().span.clone();
+                self.consume(TokenType::RightBracket);
+                Expr::Lit(Lit::Array(elem_exprs, Span::join(start_span, end_span)))
             }
-            _ => panic!("Unexpected token while parsing expression"), // Replace with proper error handling
+
+            TokenType::Ampersand => {
+                self.advance();
+                let expr = self.parse_expr();
+                return Expr::Ref(Box::new(expr));
+            }
+            _ => {
+                let tok = self.peek();
+                error!(
+                    "{}:{}:{} Unexpected token while parsing expression: {}",
+                    self.file_path, tok.span.start_line, tok.span.start_column, tok.token_type
+                );
+                exit(1);
+            }
         };
+
+        loop {
+            if (self.peek().token_type == TokenType::LeftBracket) {
+                self.advance();
+                let index_expr = self.parse_expr();
+                let end_span = self.peek().span.clone();
+                self.consume(TokenType::RightBracket);
+                lhs = Expr::Index {
+                    expr: Box::new(lhs),
+                    index: Box::new(index_expr),
+                    span: Span::new(
+                        0,
+                        0, // TODO: Fix this
+                        end_span.end_line,
+                        end_span.end_column,
+                    ),
+                };
+            }
+            if (self.peek().token_type == TokenType::Dot) {
+                self.advance();
+                let field = self.consume_identifier();
+                let end_span = self.peek().span.clone();
+                lhs = Expr::Proj {
+                    expr: Box::new(lhs),
+                    field,
+                    span: Span::new(
+                        0,
+                        0, // TODO: Fix this
+                        end_span.end_line,
+                        end_span.end_column,
+                    ),
+                }
+            } else {
+                break;
+            }
+        }
 
         while let Some(op) = self.peek_binary_operator() {
             let op_prec = op.precedence();
@@ -611,28 +867,34 @@ impl Parser {
                 break;
             }
 
+            let span = self.peek().span.clone();
             self.advance(); // Consume operator
-            let right = self.parse_expr_prec(op_prec, false); // Parse right-hand side with higher precedence
-            left = Expr::Bin(Box::new(left), op, Box::new(right));
+            let rhs = self.parse_expr_prec(op_prec, false); // Parse right-hand side with higher precedence
+            lhs = Expr::Bin {
+                lhs: Box::new(lhs),
+                op,
+                rhs: Box::new(rhs),
+                span,
+            };
         }
 
-        left
+        lhs
     }
 
     fn peek_binary_operator(&mut self) -> Option<BinOp> {
-        match self.peek() {
-            Token::Plus => Some(BinOp::Add),
-            Token::Minus => Some(BinOp::Sub),
-            Token::Star => Some(BinOp::Mul),
-            Token::Slash => Some(BinOp::Div),
-            Token::And => Some(BinOp::And),
-            Token::Or => Some(BinOp::Or),
-            Token::EqualEqual => Some(BinOp::Eq),
-            Token::NotEqual => Some(BinOp::Neq),
-            Token::Less => Some(BinOp::Lt),
-            Token::Greater => Some(BinOp::Gt),
-            Token::LessEqual => Some(BinOp::Leq),
-            Token::GreaterEqual => Some(BinOp::Geq),
+        match self.peek().token_type {
+            TokenType::Plus => Some(BinOp::Add),
+            TokenType::Minus => Some(BinOp::Sub),
+            TokenType::Star => Some(BinOp::Mul),
+            TokenType::Slash => Some(BinOp::Div),
+            TokenType::And => Some(BinOp::And),
+            TokenType::Or => Some(BinOp::Or),
+            TokenType::EqualEqual => Some(BinOp::Eq),
+            TokenType::NotEqual => Some(BinOp::Neq),
+            TokenType::Less => Some(BinOp::Lt),
+            TokenType::Greater => Some(BinOp::Gt),
+            TokenType::LessEqual => Some(BinOp::Leq),
+            TokenType::GreaterEqual => Some(BinOp::Geq),
             _ => None,
         }
     }

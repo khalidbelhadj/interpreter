@@ -11,13 +11,17 @@
 - [x] Actually implement primitive function `#`
 - [x] Slices
     - question mark syntax for slices
-- [ ] Type checking of branches
+- [x] Type checking of branches
+- [x] Location errors
+- [x] Combinding unary operators like `[]` and `.`
+- [ ] Generics
 - [ ] Dynamic memory allocation
     - `#allocate` primitive
 - [ ] `not` operator
 - [ ] Floats and negative numbers
-- [ ] Fixed percision numbers
+- [ ] Fixed precision numbers
 - [ ] Make strings more concrete, array of chars? How do we represent them?
+- [ ] Variants
 - [ ] Type inference
 
 ## Stages
