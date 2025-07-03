@@ -11,18 +11,15 @@ use log::{debug, error, info, warn, Level};
 
 type Scope = HashMap<String, Type>;
 
-struct TypeError {
-    file_path: String,
-    span: Span,
-}
+type TypeError = String;
 
 pub struct Typer {
     pub program: Program,
     pub scopes: Vec<Scope>,
     pub structs: HashMap<String, HashMap<String, Type>>,
-    pub funcs: HashMap<String, (HashMap<String, Type>, Type)>,
+    pub procs: HashMap<String, (HashMap<String, Type>, Type)>,
     pub file_path: String,
-    pub errors: Vec<TypeError>
+    pub errors: Vec<TypeError>,
 }
 
 impl Typer {
@@ -31,33 +28,37 @@ impl Typer {
             program,
             scopes: Vec::new(),
             structs: HashMap::new(),
-            funcs: HashMap::new(),
+            procs: HashMap::new(),
             file_path,
-            errors: Vec::new()
+            errors: Vec::new(),
         }
     }
 
-    pub fn get_func(&self, name: &str) -> Option<(HashMap<String, Type>, Type)> {
-        self.funcs.get(name).cloned()
+    fn add_error(&mut self, message: String) {
+        self.errors.push(message);
     }
 
-    pub fn add_func(
+    pub fn get_proc(&self, name: &str) -> Option<(HashMap<String, Type>, Type)> {
+        self.procs.get(name).cloned()
+    }
+
+    pub fn add_proc(
         &mut self,
         name: String,
         params: HashMap<String, Type>,
         ret_ty: Type,
     ) -> Option<(HashMap<String, Type>, Type)> {
-        if self.funcs.contains_key(&name) {
-            error!(
-                "{}:{}:{} Function {:?} already defined",
+        if self.procs.contains_key(&name) {
+            self.add_error(format!(
+                "{}:{}:{} Procedure {:?} already defined",
                 self.file_path, 0, 0, name
-            );
-            exit(1);
+            ));
+            return None;
         }
 
-        let func = (params.clone(), ret_ty.clone());
-        self.funcs.insert(name, func.clone());
-        Some(func)
+        let proc = (params.clone(), ret_ty.clone());
+        self.procs.insert(name, proc.clone());
+        Some(proc)
     }
 
     pub fn enter_scope(&mut self) {
@@ -71,11 +72,11 @@ impl Typer {
     fn add_type(&mut self, name: &str, ty: Type) {
         let scope = self.scopes.last_mut().expect("Scope not defined");
         if scope.contains_key(name) {
-            error!(
+            self.add_error(format!(
                 "{}:{}:{} Variable {:?} already defined",
                 self.file_path, 0, 0, name
-            );
-            exit(1);
+            ));
+            return;
         }
         scope.insert(name.to_string(), ty);
     }
@@ -100,19 +101,19 @@ impl Typer {
 
                 if *name == "main" {
                     if !params.is_empty() {
-                        error!(
-                            "{}:{}:{} Main function does not accept parameters",
+                        self.add_error(format!(
+                            "{}:{}:{} Main procedure does not accept parameters",
                             self.file_path, span.start_line, span.start_column
-                        );
-                        exit(1);
+                        ));
+                        return;
                     }
 
                     if *ret_ty != Type::Unit {
-                        error!(
-                            "{}:{}:{} Main function must return unit type",
+                        self.add_error(format!(
+                            "{}:{}:{} Main procedure must return unit type",
                             self.file_path, span.start_line, span.start_column
-                        );
-                        exit(1);
+                        ));
+                        return;
                     }
 
                     self.type_check_block(HashMap::new(), block, Type::Unit);
@@ -124,10 +125,10 @@ impl Typer {
                     param_types.insert(name.clone(), ty.clone());
                 }
 
-                // Add function to the function map
-                self.add_func(name.clone(), param_types.clone(), ret_ty.clone());
+                // Add procedure to the procedure map
+                self.add_proc(name.clone(), param_types.clone(), ret_ty.clone());
 
-                // Check if the function body produces the correct return type
+                // Check if the procedure body produces the correct return type
                 self.type_check_block(param_types.clone(), block, ret_ty.clone());
             }
             TopLevel::StructDecl(StructDecl {
@@ -140,20 +141,20 @@ impl Typer {
         }
     }
 
-    fn get_struct_field_type(&self, name: String, field: String) -> Type {
+    fn get_struct_field_type(&self, name: String, field: String) -> Option<Type> {
         let fields = self.structs.get(&name);
         let field_ty = fields.and_then(|f| f.get(&field).cloned());
-        if let Some(ty) = field_ty {
-            return ty;
-        }
-        exit(1)
+        return field_ty;
     }
 
-    fn get_type_from_expr(&mut self, expr: &Expr) -> Type {
+    fn get_type_from_expr(&mut self, expr: &Expr) -> Option<Type> {
         match expr {
-            Expr::Ref(expr) => Type::Ref(Box::new(self.get_type_from_expr(expr))),
+            // TODO: only allow ref of allocated variables, no literals
+            Expr::Ref(expr) => self
+                .get_type_from_expr(expr)
+                .map(|t| Type::Ref(Box::new(t))),
             Expr::Proj { expr, field, span } => {
-                let ty = self.get_type_from_expr(expr);
+                let ty = self.get_type_from_expr(expr)?;
                 match ty {
                     Type::Struct(name) => self.get_struct_field_type(name, field.clone()),
                     Type::Ref(inner_ty) => {
@@ -162,70 +163,89 @@ impl Typer {
                             return field_ty;
                         }
 
-                        error!(
+                        self.add_error(format!(
                             "{}:{}:{} Projecting from non-struct reference {:?}",
                             self.file_path,
                             expr.span().start_line,
                             expr.span().start_column,
                             inner_ty
-                        );
-                        exit(1);
+                        ));
+                        return None;
                     }
                     _ => {
-                        error!(
+                        self.add_error(format!(
                             "{}:{}:{} Projecting from non-struct {:?}",
                             self.file_path,
                             expr.span().start_line,
                             expr.span().start_column,
                             ty
-                        );
-                        exit(1);
+                        ));
+                        return None;
                     }
                 }
             }
             Expr::Index { expr, index, span } => {
-                let ty = self.get_type_from_expr(expr);
-                match ty.clone() {
-                    Type::Array(elem_ty, size) => *elem_ty,
+                let ty = self.get_type_from_expr(expr)?;
+                match ty {
+                    Type::Array(elem_ty, size) => Some(*elem_ty),
                     _ => {
-                        error!(
+                        self.add_error(format!(
                             "{}:{}:{} Indexing into non-array {:?}",
                             self.file_path,
                             expr.span().start_line,
                             expr.span().start_column,
                             ty
-                        );
-                        exit(1);
+                        ));
+                        return None;
                     }
                 }
             }
             Expr::Var { name, span } => {
                 for scope in self.scopes.iter().rev() {
                     if let Some(ty) = scope.get(name) {
-                        return ty.clone();
+                        return Some(ty.clone());
                     }
                 }
 
-                error!(
+                self.add_error(format!(
                     "{}:{}:{} Variable {:?} not defined",
-                    self.file_path, 0, 0, name
-                );
-                exit(1);
+                    self.file_path, span.start_line, span.start_column, name
+                ));
+                return None;
+            }
+            Expr::Deref(expr) => {
+                let inner_ty = self.get_type_from_expr(expr);
+                match inner_ty {
+                    Some(Type::Ref(t)) => Some(*t),
+                    _ => {
+                        let span = expr.span();
+                        self.add_error(format!(
+                            "{}:{}:{} Dereferencing non-pointer {:?}",
+                            self.file_path, span.start_line, span.start_column, expr
+                        ));
+                        None
+                    }
+                }
             }
             _ => {
-                error!(
+                self.add_error(format!(
                     "{}:{}:{} Cannot get type from expression {:?}",
                     self.file_path,
                     expr.span().start_line,
                     expr.span().start_column,
                     expr
-                );
-                exit(1);
+                ));
+                return None;
             }
         }
     }
 
-    fn type_check_block(&mut self, scope: HashMap<String, Type>, block: &Block, ret_ty: Type) -> bool {
+    fn type_check_block(
+        &mut self,
+        scope: HashMap<String, Type>,
+        block: &Block,
+        ret_ty: Type,
+    ) -> bool {
         self.enter_scope();
 
         for (name, ty) in scope.iter() {
@@ -238,13 +258,13 @@ impl Typer {
 
         for (i, stmt) in block.statements.iter().enumerate() {
             if has_returned && i != stmt_stack.len() - 1 {
-                error!(
+                self.add_error(format!(
                     "{}:{}:{} Unreachable code after return statement",
                     self.file_path,
                     stmt.span().start_line,
                     stmt.span().start_column
-                );
-                exit(1);
+                ));
+                return has_returned;
             }
 
             match stmt {
@@ -259,7 +279,10 @@ impl Typer {
                 }
                 Stmt::Assign { lhs, rhs, span } => {
                     let lhs_ty = self.get_type_from_expr(lhs);
-                    self.type_check_expr(rhs, &lhs_ty);
+                    if lhs_ty.is_none() {
+                        return false;
+                    }
+                    self.type_check_expr(rhs, &lhs_ty.unwrap());
                 }
                 Stmt::Call { name, args, span } => {
                     if name == "#print" {
@@ -274,12 +297,17 @@ impl Typer {
                         );
                     }
 
-                    let func_ty = self
-                        .get_func(name)
-                        .unwrap_or_else(|| panic!("Function {} not defined", name))
-                        .clone();
+                    let proc_ty = self.get_proc(name);
 
-                    let (params, ret_ty) = func_ty;
+                    if proc_ty.is_none() {
+                        self.add_error(format!(
+                            "{}:{}:{} Procedure {} not defined",
+                            self.file_path, span.start_line, span.start_column, name
+                        ));
+                        return false;
+                    }
+
+                    let (params, ret_ty) = proc_ty.unwrap();
 
                     // iterate over params and check that args match
                     for (i, arg) in args.iter().enumerate() {
@@ -289,11 +317,12 @@ impl Typer {
                                 self.type_check_expr(arg, ty);
                             }
                             None => {
-                                error!(
-                                    "{}:{}:{} Too many arguments for function {}",
+                                self.add_error(format!(
+                                    "{}:{}:{} Too many arguments for procedure {}",
                                     self.file_path, span.start_line, span.start_column, name
-                                );
-                                exit(1);
+                                ));
+                                // TODO: not sure if this is correct
+                                return false;
                             }
                         }
                     }
@@ -314,7 +343,8 @@ impl Typer {
                 } => {
                     self.type_check_expr(cond, &Type::Bool);
 
-                    let if_returns = self.type_check_block(HashMap::new(), then_block, ret_ty.clone());
+                    let if_returns =
+                        self.type_check_block(HashMap::new(), then_block, ret_ty.clone());
                     let else_returns =
                         self.type_check_block(HashMap::new(), else_block, ret_ty.clone());
                     has_returned = if_returns && else_returns;
@@ -373,14 +403,14 @@ impl Typer {
                     return;
                 }
 
-                error!(
+                self.add_error(format!(
                     "{}:{}:{} Type mismatch",
                     self.file_path, span.start_line, span.start_column
-                );
-                exit(1);
+                ));
+                return;
             }
             (Expr::Var { name, span }, Type::Array(elem_ty, size)) => {
-                match self.get_type_from_expr(expr) {
+                match self.get_type_from_expr(expr).unwrap() {
                     Type::Array(ty, s) => {
                         match (size, s) {
                             (ArrayLength::Dynamic, ArrayLength::Dynamic) => {
@@ -391,39 +421,43 @@ impl Typer {
                             }
                             (ArrayLength::Fixed(s1), ArrayLength::Fixed(s2)) => {
                                 if *s1 != s2 {
-                                    error!(
+                                    self.add_error(format!(
                                         "{}:{}:{} Expected array of length {:?}, got length {:?}",
                                         self.file_path, span.start_line, span.start_column, s1, s2
-                                    );
-                                    exit(1);
+                                    ));
+                                    return;
                                 }
                             }
                             _ => {
-                                error!(
+                                self.add_error(format!(
                                     "{}:{}:{} Expected dynamic array, got {:?}",
                                     self.file_path, span.start_line, span.start_column, size
-                                );
-                                exit(1);
+                                ));
+                                return;
                             }
                         }
                     }
                     _ => {
-                        error!(
+                        self.add_error(format!(
                             "{}:{}:{} Expected array, got {:?}",
                             self.file_path, span.start_line, span.start_column, name
-                        );
-                        exit(1);
+                        ));
+                        return;
                     }
                 }
             }
             (Expr::Var { name, span }, ty) => {
-                let t = self.get_type_from_expr(expr);
-                if t != *ty {
-                    error!(
+                let t = self.get_type_from_expr(expr).unwrap();
+                if t.clone() != *ty {
+                    self.add_error(format!(
                         "{}:{}:{} Type mismatch, expected {:?} got {:?}",
-                        self.file_path, span.start_line, span.start_column, ty, t
-                    );
-                    exit(1);
+                        self.file_path,
+                        span.start_line,
+                        span.start_column,
+                        ty.clone(),
+                        t
+                    ));
+                    return;
                 }
             }
             (Expr::Lit(Lit::Struct(lit, lit_span)), Type::Struct(name)) => {
@@ -437,13 +471,16 @@ impl Typer {
             (Expr::Call { name, args, span }, ty) => {
                 if name == "#length" {
                     let arg = args.first().expect("Argument not found");
-                    self.type_check_expr(arg, &Type::Array(Box::new(Type::Int), ArrayLength::Dynamic));
+                    self.type_check_expr(
+                        arg,
+                        &Type::Array(Box::new(Type::Int), ArrayLength::Dynamic),
+                    );
                     return;
                 }
 
                 let (params, ret_ty) = self
-                    .get_func(name)
-                    .unwrap_or_else(|| panic!("Function {} not defined", name))
+                    .get_proc(name)
+                    .unwrap_or_else(|| panic!("Procedure {} not defined", name))
                     .clone();
 
                 // iterate over params and check that args match
@@ -451,16 +488,16 @@ impl Typer {
                     let (_, ty) = params
                         .iter()
                         .nth(i)
-                        .expect("Missing parameter in function call");
+                        .expect("Missing parameter in procedure call");
                     self.type_check_expr(arg, ty);
                 }
 
                 if ret_ty != *ty {
-                    error!(
+                    self.add_error(format!(
                         "{}:{}:{} Expected {:?}, got {:?}",
                         self.file_path, span.start_line, span.start_column, ty, ret_ty
-                    );
-                    exit(1);
+                    ));
+                    return;
                 }
             }
             (Expr::Proj { expr, field, span }, ty) => {
@@ -471,15 +508,15 @@ impl Typer {
                     ArrayLength::Dynamic => {}
                     ArrayLength::Fixed(s) => {
                         if s != &lit.len() {
-                            error!(
+                            self.add_error(format!(
                                 "{}:{}:{} Expected array of length {:?}, got length {:?}",
                                 self.file_path,
                                 span.start_line,
                                 span.start_column,
                                 s,
                                 lit.len()
-                            );
-                            exit(1);
+                            ));
+                            return;
                         }
                     }
                 }
@@ -489,23 +526,23 @@ impl Typer {
                 }
             }
             (Expr::Index { expr, index, span }, ty) => {
-                let var_ty = self.get_type_from_expr(expr);
+                let var_ty = self.get_type_from_expr(expr).unwrap();
                 match var_ty {
                     Type::Array(elem_ty, _) => {
                         if elem_ty.as_ref() != ty {
-                            error!(
+                            self.add_error(format!(
                                 "{}:{}:{} Expected {:?}, got {:?}",
                                 self.file_path, span.start_line, span.start_column, ty, elem_ty
-                            );
-                            exit(1);
+                            ));
+                            return;
                         }
                     }
                     _ => {
-                        error!(
+                        self.add_error(format!(
                             "{}:{}:{} Expected array, got {:?}",
                             self.file_path, span.start_line, span.start_column, var_ty
-                        );
-                        exit(1);
+                        ));
+                        return;
                     }
                 }
 
@@ -514,17 +551,20 @@ impl Typer {
 
             (Expr::Ref(expr), Type::Ref(ty)) => {
                 self.type_check_expr(expr, ty);
+            },
+            (Expr::Deref(expr), Type::Ref(ty)) => {
+                self.type_check_expr(expr, &Type::Ref(ty.clone()))
             }
             _ => {
-                error!(
+                self.add_error(format!(
                     "{}:{}:{} Expected {:?}, got expression {:?}",
                     self.file_path,
                     expr.span().start_line,
                     expr.span().start_column,
                     target,
                     expr
-                );
-                exit(1);
+                ));
+                return;
             }
         };
     }
@@ -583,12 +623,13 @@ impl Expr {
         match self {
             Expr::Unit(span) => span,
             Expr::Ref(expr) => expr.span(),
+            Expr::Deref(expr) => expr.span(),
             Expr::Var { name, span } => span,
             Expr::Bin { lhs, op, rhs, span } => span,
             Expr::Call { name, args, span } => span,
             Expr::Proj { expr, field, span } => span,
             Expr::Index { expr, index, span } => span,
-            Expr::Lit(lit) => todo!(),
+            Expr::Lit(lit) => lit.span(),
         }
     }
 }

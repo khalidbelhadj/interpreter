@@ -15,6 +15,7 @@ use ansi_term::Color;
 use env_logger::{Builder, Env};
 use log::Level;
 use std::io::Write;
+use std::process::exit;
 
 fn init_logger() {
     Builder::from_env(Env::default().default_filter_or("debug"))
@@ -79,6 +80,13 @@ fn main() {
     // println!("---------- Typechecking ----------");
     let mut typer = Typer::new(parser.program, file_path.clone());
     typer.type_check();
+    for e in typer.errors.iter() {
+        println!("{}", e);
+    }
+
+    if typer.errors.len() != 0 {
+        exit(1);
+    }
 
     // println!("Structs:");
     // for (name, fields) in typer.structs.iter() {

@@ -111,6 +111,7 @@ pub enum Expr {
         span: Span,
     },
     Ref(Box<Expr>),
+    Deref(Box<Expr>),
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
@@ -185,7 +186,7 @@ impl Expr {
                     expr: _,
                     index: _,
                     span: _
-                }
+                } | Expr::Deref(_)
         )
     }
 
@@ -815,6 +816,11 @@ impl Parser {
                 let expr = self.parse_expr();
                 return Expr::Ref(Box::new(expr));
             }
+            TokenType::Star => {
+                self.advance();
+                let expr = self.parse_expr();
+                return Expr::Deref(Box::new(expr));
+            },
             _ => {
                 let tok = self.peek();
                 error!(
