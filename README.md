@@ -127,7 +127,7 @@ main :: () unit {
 }
 ```
 
-## Notes
+## To do
 
 - [x] Fix assignment lhs to allow more complex expressions
     - done by considering lvalue and rvalue expressions
@@ -143,12 +143,16 @@ main :: () unit {
 - [x] Combinding unary operators like `[]` and `.`
 - [x] Reference semantics
   - use the `&` operator to get the reference of an expression
-  - use references as types and function semantics
-- [ ] Floats and negative numbers
+  - use references as types and function semanticsn
+- [x] Floats
+- [ ] Negative numbers
 - [ ] `not` operator
 - [ ] Fixed precision numbers like u32, i64 and so on
 - [ ] Make strings more concrete, array of chars? How do we represent them?
+- [ ] Tuples
 - [ ] Variants
 - [ ] Generics
 - [ ] Type inference
+- [ ] Standard library
+  - collections
 

@@ -118,6 +118,7 @@ pub enum Expr {
 pub enum Type {
     Unit,
     Int,
+    Float,
     Str,
     Bool,
     Struct(String),
@@ -131,14 +132,25 @@ pub enum ArrayLength {
     Dynamic,
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, Clone)]
 pub enum Lit {
     Int(i64, Span),
+    Float(f64, Span),
     Str(String, Span),
     Bool(bool, Span),
     Struct(HashMap<String, Expr>, Span),
     Array(Vec<Expr>, Span),
 }
+
+impl PartialEq for Lit {
+    fn eq(&self, other: &Lit) -> bool {
+        match (self, other) {
+            (Lit::Float(f1, _), Lit::Float(f2, _)) => f1 == f2,
+            (x, y) => x == y,
+        }
+    }
+}
+impl Eq for Lit {}
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum BinOp {
@@ -234,7 +246,7 @@ pub struct Parser {
 }
 
 impl Parser {
-    pub fn new(file_path: String, tokens: Vec<Token>) -> Parser {
+    pub fn new(file_path: String, tokens: Vec<Token>) -> Parser { 
         Parser {
             file_path,
             tokens,
@@ -271,7 +283,7 @@ impl Parser {
                 expected,
                 tok.token_type
             );
-            exit(1);
+            panic!();
         }
     }
 
@@ -295,6 +307,7 @@ impl Parser {
             let name = self.consume_identifier();
 
             // Consume compile time assign operator
+            
             self.consume(TokenType::Colon);
             self.consume(TokenType::Colon);
 
@@ -302,6 +315,8 @@ impl Parser {
             match tok {
                 // Proc decleration
                 TokenType::LeftParen => {
+           
+                    
                     let proc_decl = self.parse_proc(name);
                     self.program.push(TopLevel::ProcDecl(proc_decl));
                 }
@@ -319,6 +334,7 @@ impl Parser {
                     exit(1);
                 }
             }
+
         }
     }
 
@@ -333,6 +349,10 @@ impl Parser {
             TokenType::Int => {
                 self.advance();
                 Type::Int
+            }
+            TokenType::Float => {
+                self.advance();
+                Type::Float
             }
             TokenType::String => {
                 self.advance();
@@ -361,7 +381,7 @@ impl Parser {
                 // Fixed size array
                 if let TokenType::Comma = tok.token_type {
                     self.advance();
-                    if let TokenType::Integer(length) = self.peek().token_type {
+                    if let TokenType::IntegerLiteral(length) = self.peek().token_type {
                         self.advance();
                         if length <= 0 {
                             let tok = self.peek();
@@ -697,10 +717,15 @@ impl Parser {
 
     fn parse_expr_prec(&mut self, prec: Prec, is_condition: bool) -> Expr {
         let mut lhs = match self.peek().token_type {
-            TokenType::Integer(n) => {
+            TokenType::IntegerLiteral(n) => {
                 let span = self.peek().span.clone();
                 self.advance();
                 Expr::Lit(Lit::Int(n, span.clone()))
+            }
+            TokenType::FloatLiteral(f) => {
+                let span = self.peek().span.clone();
+                self.advance();
+                Expr::Lit(Lit::Float(f, span.clone()))
             }
             TokenType::Hash | TokenType::Ident(_) => {
                 // Identifier

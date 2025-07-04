@@ -383,11 +383,18 @@ impl Typer {
             (Expr::Unit(span), Type::Unit) => {}
             (Expr::Lit(Lit::Bool(val, lit_span)), Type::Bool) => {}
             (Expr::Lit(Lit::Int(val, lit_span)), Type::Int) => {}
+            (Expr::Lit(Lit::Float(val, lit_span)), Type::Float) => {}
             (Expr::Lit(Lit::Str(val, lit_span)), Type::Str) => {}
             (Expr::Bin { lhs, op, rhs, span }, ty) => {
-                if op.is_arithmetic() && ty == &Type::Int {
-                    self.type_check_expr(lhs, &Type::Int);
-                    self.type_check_expr(rhs, &Type::Int);
+                if op.is_arithmetic()  {
+                    if ty == &Type::Int {
+                        self.type_check_expr(lhs, &Type::Int);
+                        self.type_check_expr(rhs, &Type::Int);
+                    }
+                    if ty == &Type::Float {
+                        self.type_check_expr(lhs, &Type::Float);
+                        self.type_check_expr(rhs, &Type::Float);
+                    }
                     return;
                 }
 
@@ -610,6 +617,7 @@ impl Lit {
     fn span(&self) -> &Span {
         match self {
             Lit::Int(_, span) => span,
+            Lit::Float(_, span) => span,
             Lit::Str(_, span) => span,
             Lit::Bool(_, span) => span,
             Lit::Struct(hash_map, span) => span,

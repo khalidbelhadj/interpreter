@@ -5,7 +5,7 @@ use std::{
     process::exit,
 };
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, Clone)]
 pub enum TokenType {
     // Keywords
     Struct,
@@ -21,6 +21,7 @@ pub enum TokenType {
 
     // Types
     Int,
+    Float,
     String,
     Bool,
     Unit,
@@ -57,10 +58,72 @@ pub enum TokenType {
 
     // Literals
     Ident(String),
-    Integer(i64),
+    IntegerLiteral(i64),
     StringLiteral(String),
+    FloatLiteral(f64),
     EOF,
 }
+impl PartialEq for TokenType {
+    fn eq(&self, other: &TokenType) -> bool {
+        match (self, other) {
+            // Handle variants with data explicitly
+            (TokenType::Ident(s1), TokenType::Ident(s2)) => s1 == s2,
+            (TokenType::IntegerLiteral(i1), TokenType::IntegerLiteral(i2)) => i1 == i2,
+            (TokenType::StringLiteral(s1), TokenType::StringLiteral(s2)) => s1 == s2,
+            (TokenType::FloatLiteral(f1), TokenType::FloatLiteral(f2)) => f1 == f2,
+            
+            // Handle all unit variants (variants without data)
+            (TokenType::Struct, TokenType::Struct) => true,
+            (TokenType::Let, TokenType::Let) => true,
+            (TokenType::If, TokenType::If) => true,
+            (TokenType::Else, TokenType::Else) => true,
+            (TokenType::Return, TokenType::Return) => true,
+            (TokenType::While, TokenType::While) => true,
+            (TokenType::For, TokenType::For) => true,
+            (TokenType::In, TokenType::In) => true,
+            (TokenType::True, TokenType::True) => true,
+            (TokenType::False, TokenType::False) => true,
+            (TokenType::Int, TokenType::Int) => true,
+            (TokenType::Float, TokenType::Float) => true,
+            (TokenType::String, TokenType::String) => true,
+            (TokenType::Bool, TokenType::Bool) => true,
+            (TokenType::Unit, TokenType::Unit) => true,
+            (TokenType::And, TokenType::And) => true,
+            (TokenType::Or, TokenType::Or) => true,
+            (TokenType::DotDot, TokenType::DotDot) => true,
+            (TokenType::LeftBracket, TokenType::LeftBracket) => true,
+            (TokenType::RightBracket, TokenType::RightBracket) => true,
+            (TokenType::Not, TokenType::Not) => true,
+            (TokenType::Plus, TokenType::Plus) => true,
+            (TokenType::Minus, TokenType::Minus) => true,
+            (TokenType::Star, TokenType::Star) => true,
+            (TokenType::Slash, TokenType::Slash) => true,
+            (TokenType::Equal, TokenType::Equal) => true,
+            (TokenType::Colon, TokenType::Colon) => true,
+            (TokenType::Dot, TokenType::Dot) => true,
+            (TokenType::Comma, TokenType::Comma) => true,
+            (TokenType::Greater, TokenType::Greater) => true,
+            (TokenType::Less, TokenType::Less) => true,
+            (TokenType::GreaterEqual, TokenType::GreaterEqual) => true,
+            (TokenType::LessEqual, TokenType::LessEqual) => true,
+            (TokenType::EqualEqual, TokenType::EqualEqual) => true,
+            (TokenType::NotEqual, TokenType::NotEqual) => true,
+            (TokenType::Semicolon, TokenType::Semicolon) => true,
+            (TokenType::Hash, TokenType::Hash) => true,
+            (TokenType::QuestionMark, TokenType::QuestionMark) => true,
+            (TokenType::Ampersand, TokenType::Ampersand) => true,
+            (TokenType::LeftParen, TokenType::LeftParen) => true,
+            (TokenType::RightParen, TokenType::RightParen) => true,
+            (TokenType::LeftBrace, TokenType::LeftBrace) => true,
+            (TokenType::RightBrace, TokenType::RightBrace) => true,
+            (TokenType::EOF, TokenType::EOF) => true,
+            
+            // All other combinations are not equal
+            _ => false,
+        }
+    }
+}
+impl Eq for TokenType {}
 
 impl Display for TokenType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -76,6 +139,7 @@ impl Display for TokenType {
             TokenType::True => "true",
             TokenType::False => "false",
             TokenType::Int => "int",
+            TokenType::Float => "float",
             TokenType::String => "string",
             TokenType::Bool => "bool",
             TokenType::Unit => "unit",
@@ -108,8 +172,9 @@ impl Display for TokenType {
             TokenType::LeftBrace => "{",
             TokenType::RightBrace => "}",
             TokenType::Ident(_) => "identifier",
-            TokenType::Integer(_) => "int",
+            TokenType::IntegerLiteral(_) => "int",
             TokenType::StringLiteral(_) => "string literal",
+            TokenType::FloatLiteral(_) => "float",
             TokenType::EOF => "EOF",
         };
 
@@ -381,24 +446,43 @@ impl Tokeniser {
                 self.add_token(TokenType::StringLiteral(string));
             }
             _ => {
-                if c.is_ascii_digit() {
-                    // Parse number
-                    // TODO: This needs to take into account different base literals and floats
+                if c.is_ascii_digit() || c == '.' {
+                    let mut is_float = c == '.';
                     let mut number = c.to_string();
-                    while self.peek().is_ascii_digit() {
-                        number.push(self.advance());
+                    loop {
+                        let curr = self.peek();
+                        if !(curr.is_ascii_digit() || curr == '.') {
+                            break;
+                        }
+                        self.advance();
+
+                        is_float = curr == '.' || is_float;
+                        number.push(curr);
                     }
 
-                    match number.parse() {
-                        Ok(n) => self.add_token(TokenType::Integer(n)),
-                        Err(_) => {
+                    if is_float {
+                        let f: Option<f64> = number.parse().ok();
+                        if f.is_none() {
                             error!(
-                                "{}:{}:{}: Unable to parse number",
+                                "{}:{}:{}: Could not parse float {number}",
                                 self.file_path, self.curr_line, self.start
                             );
                             exit(1);
                         }
+                        self.add_token(TokenType::FloatLiteral(f.unwrap()))
+                    } else {
+                        let n: Option<i64> = number.parse().ok();
+                        if n.is_none() {
+                            error!(
+                                "{}:{}:{}: Could not parse int {number}",
+                                self.file_path, self.curr_line, self.start
+                            );
+                            exit(1);
+                        }
+                        self.add_token(TokenType::IntegerLiteral(n.unwrap()))
                     }
+
+                    
                 } else if c.is_alphabetic() {
                     let mut identifier = c.to_string();
                     while self.peek().is_alphanumeric() || self.peek() == '_' {
@@ -412,6 +496,7 @@ impl Tokeniser {
                         "else" => self.add_token(TokenType::Else),
                         "return" => self.add_token(TokenType::Return),
                         "int" => self.add_token(TokenType::Int),
+                        "float" => self.add_token(TokenType::Float),
                         "string" => self.add_token(TokenType::String),
                         "unit" => self.add_token(TokenType::Unit),
                         "bool" => self.add_token(TokenType::Bool),

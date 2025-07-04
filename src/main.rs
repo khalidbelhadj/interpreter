@@ -62,13 +62,15 @@ fn main() {
     }
     let file_path = &args[1];
 
+    let compile_start = SystemTime::now();
+
     // println!("---------- Tokens ----------");
     let start = SystemTime::now();
     let mut tokeniser = Tokeniser::from_file(file_path.clone());
     tokeniser.tokenise();
     let end = SystemTime::now();
     let duration = end.duration_since(start).unwrap();
-    println!("tokeniser: {}s", duration.as_secs_f64());
+    println!("Tokenised in {}s", duration.as_secs_f64());
 
     // for token in tokeniser.tokens.iter() {
     //     println!("{:?}", token)
@@ -82,7 +84,7 @@ fn main() {
     parser.parse();
     let end = SystemTime::now();
     let duration = end.duration_since(start).unwrap();
-    println!("parser: {}s", duration.as_secs_f64());
+    println!("Parserd in {}s", duration.as_secs_f64());
 
     // println!("{:#?}", parser.program);
     // println!();
@@ -96,7 +98,7 @@ fn main() {
     typer.type_check();
     let end = SystemTime::now();
     let duration = end.duration_since(start).unwrap();
-    println!("typer: {}s", duration.as_secs_f64());
+    println!("Type checked in {}s", duration.as_secs_f64());
 
     for e in typer.errors.iter() {
         println!("{}", e);
@@ -111,17 +113,23 @@ fn main() {
         exit(1);
     }
 
-    // println!("Structs:");
-    // for (name, fields) in typer.structs.iter() {
-    //     println!("    - {:?} {:?}", name, fields);
-    // }
+    let compile_end = SystemTime::now();
+    let duration = compile_end
+        .duration_since(compile_start)
+        .unwrap()
+        .as_secs_f64();
+    println!("Compiled in {}s", duration);
 
-    // println!("Functions:");
-    // for (name, (params, ret_ty)) in typer.funcs.iter() {
-    //     println!("    - {:?} {:?} {:?}", name, params, ret_ty);
-    // }
-    // println!();
+    println!("Structs");
+    for (name, fields) in typer.structs.iter() {
+        println!("    - {:?} {:?}", name, fields);
+    }
 
+    println!("Procs");
+    for (name, (params, ret_ty)) in typer.procs.iter() {
+        println!("    - {:?} {:?} {:?}", name, params, ret_ty);
+    }
+    println!();
     // println!("---------- Evaluation ----------");
 
     let mut evaluator = Evaluator::new();
