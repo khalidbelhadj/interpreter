@@ -1,3 +1,23 @@
+B :: struct {
+  b float,
+}
+
+A :: struct {
+  a &B,
+}
+
 main :: () unit {
-   let result3 bool = 10 > 5 == 3 < 7;
+  let b B = B {
+    b = 10.1
+  };
+
+  let a A = A {
+    a = &b
+  };
+
+  #print(a);
+  #print(b);
+  a.a.b = 20.0;
+  #print(a);
+  #print(b);
 }

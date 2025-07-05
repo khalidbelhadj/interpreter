@@ -5,8 +5,8 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::format;
 use std::process::exit;
 
-use crate::parser::*;
-use crate::tokeniser::Span;
+use crate::ast::*;
+use crate::token::*;
 
 use log::{debug, error, info, warn, Level};
 
@@ -176,7 +176,7 @@ impl Typer {
 
                 Some(ret_ty)
             }
-            // TODO: only allow ref of allocated variables, no literals
+            // TODO: only allow ref of lvalues
             Expr::Ref(expr) => self.type_infer(expr).map(|t| Type::Ref(Box::new(t))),
             Expr::Proj { expr, field, span } => {
                 let ty = self.type_infer(expr)?;

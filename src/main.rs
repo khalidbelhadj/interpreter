@@ -1,7 +1,9 @@
 #![allow(unused)]
+pub mod ast;
 pub mod eval;
 pub mod evaluator;
 pub mod parser;
+pub mod token;
 pub mod tokeniser;
 pub mod typer;
 

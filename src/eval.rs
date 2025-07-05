@@ -1,8 +1,7 @@
 use log::error;
 
-use crate::parser::*;
-use crate::tokeniser::*;
-use crate::typer::*;
+use crate::ast::*;
+use crate::token::*;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::format;
@@ -226,7 +225,7 @@ impl Evaluator {
                             Err("".to_string())
                         }
                     }
-                    _ => Err("slkfjkljs".to_string()),
+                    _ => Err("Dereferencing a non-ref type".to_string()),
                 }
             }
             _ => Err("Invalid lvalue expression".to_string()),
@@ -546,7 +545,7 @@ impl Evaluator {
     }
 
     fn eval_binary_op(&mut self, lhs: Expr, op: BinaryOp, rhs: Expr) -> Result<Value, String> {
-        use crate::parser::BinaryOp::*;
+        use crate::ast::BinaryOp::*;
         let left_val = self.eval_expr(&lhs)?;
         let right_val = self.eval_expr(&rhs)?;
 
