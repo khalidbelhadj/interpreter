@@ -26,35 +26,49 @@ main :: () unit {
 
 Some procedures are build in to the language and are prefixed with `#` such as `#print` and `#length`.
 
-### Structs
-
-Similar to procedures, structs are defined using the `::` operator and the struct keyword. In braces, the fields are defined with their types. To instantiate a struct, the struct literal syntax is used, which is similar to the struct definition. The fields are defined with their values after `=`. Fields can be accessed using the dot operator.
-
-```
-Point2D :: struct {
-    x int,
-    y int
-}
-
-main :: () unit {
-    let p1 Point = Point {
-        x = 1,
-        y = 2
-    };
-
-    #print(p1.x);
-}
-```
-
 ### Variables
 
 Variables are defined using the `let` keyword. The type of the variable is specified after the variable name. At this point in time the type is required, but in the future it will be inferred.
 
 ```
-main :: () unit {
-    let x int = add(1, 2);
-    #print(x);
+let x int = add(1, 2);
+#print(x);
+
+// Literals
+let i int = 1;
+let f float = 1.5;
+let s string = "string literal";
+```
+
+### Structs
+
+Similar to procedures, structs are defined using the `::` operator and the struct keyword. In braces, the fields are defined with their types. To instantiate a struct, the struct literal syntax is used, which is similar to the struct definition. The fields are defined with their values after `=`. Fields can be accessed using the dot operator.
+
+```
+// Declaring a struct
+Point2D :: struct {
+    x int,
+    y int
 }
+
+// Using the struct
+let p1 Point = Point {
+    x = 1,
+    y = 2
+};
+
+#print(p1.x);
+```
+
+### Logic
+
+Logical expressions use the `not`, `or` and `and` operator to denote negation, disjunction and conjunction respecively.
+
+```
+let a bool = false;
+let b bool = my_proc();
+let c bool = true;
+let d bool = not a and b or c
 ```
 
 ### Branching
@@ -99,10 +113,8 @@ sum :: (xs [int]) int {
 }
 
 
-main :: () unit {
-    let numbers [int, 5] = [1, 2, 3, 4, 5];
-    #print(sum(numbers));
-}
+let numbers [int, 5] = [1, 2, 3, 4, 5];
+#print(sum(numbers));
 ```
 
 The `#length` builtin is used to get the length of an array or slice.
@@ -120,14 +132,12 @@ pass_by_ref :: (r &int) unit {
     *r = 20;
 }
 
-main :: () unit {
-    let x int = 10;
-    let r &int = &x;
-    pass_by_value(x);
-    // x is still 10
-    pass_by_ref(r);
-    // x is now 20
-}
+let x int = 10;
+let r &int = &x;
+pass_by_value(x);
+// x is still 10
+pass_by_ref(r);
+// x is now 20
 ```
 
 ## Comments

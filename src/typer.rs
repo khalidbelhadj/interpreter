@@ -8,6 +8,7 @@ use std::process::exit;
 use crate::ast::*;
 use crate::token::*;
 
+use clap::builder::BoolValueParser;
 use log::{debug, error, info, warn, Level};
 
 type Scope = HashMap<String, Type>;
@@ -176,7 +177,6 @@ impl Typer {
 
                 Some(ret_ty)
             }
-            // TODO: only allow ref of lvalues
             Expr::Ref(expr) => self.type_infer(expr).map(|t| Type::Ref(Box::new(t))),
             Expr::Proj { expr, field, span } => {
                 let ty = self.type_infer(expr)?;
@@ -252,6 +252,12 @@ impl Typer {
                     }
                 }
             }
+            Expr::Unary { op, rhs, span } => match op {
+                UnaryOp::Not => {
+                    self.type_check_expr(rhs, &Type::Bool);
+                    Some(Type::Bool)
+                }
+            },
             Expr::Binary { lhs, op, rhs, span } => {
                 if op.is_logical() {
                     self.type_check_expr(lhs, &Type::Bool);

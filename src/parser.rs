@@ -709,6 +709,8 @@ impl Parser {
             TokenType::IntegerLiteral(i) => Expr::Lit(Lit::Int(i, self.advance().span)),
             TokenType::FloatLiteral(f) => Expr::Lit(Lit::Float(f, self.advance().span)),
             TokenType::StringLiteral(s) => Expr::Lit(Lit::Str(s, self.advance().span)),
+            TokenType::True => Expr::Lit(Lit::Bool(true, self.advance().span)),
+            TokenType::False => Expr::Lit(Lit::Bool(false, self.advance().span)),
             TokenType::Ident(_) | TokenType::Hash => {
                 // Identifier
                 let start_span = self.peek().span.clone();

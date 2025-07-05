@@ -177,7 +177,11 @@ impl Tokeniser {
                     self.advance();
                     self.add_token(TokenType::NotEqual);
                 } else {
-                    self.add_token(TokenType::Not);
+                    error!(
+                        "{}:{}:{}: Use `not` for negation",
+                        self.file_path, self.curr_line, self.start
+                    );
+                    exit(1);
                 }
             }
             '=' => {
@@ -286,6 +290,7 @@ impl Tokeniser {
                         "false" => self.add_token(TokenType::False),
                         "and" => self.add_token(TokenType::And),
                         "or" => self.add_token(TokenType::Or),
+                        "not" => self.add_token(TokenType::Not),
                         "while" => self.add_token(TokenType::While),
                         "for" => self.add_token(TokenType::For),
                         "in" => self.add_token(TokenType::In),
