@@ -81,7 +81,7 @@ impl Tokeniser {
             return '\0';
         }
 
-        self.source.chars().nth(self.curr).expect("Failed to peek")
+        self.source.chars().nth(self.curr).unwrap_or('\0')
     }
 
     fn span(&self) -> Span {
@@ -110,6 +110,7 @@ impl Tokeniser {
                 self.curr_col = 1;
             }
             ' ' | '\r' | '\t' => {}
+            '.' => self.add_token(TokenType::Dot),
             '+' => self.add_token(TokenType::Plus),
             '-' => self.add_token(TokenType::Minus),
             '&' => self.add_token(TokenType::Ampersand),
@@ -164,7 +165,7 @@ impl Tokeniser {
                         if self.is_at_end() && nesting > 0 {
                             error!(
                                 "{}:{}:{}: Unterminated multi-line comment",
-                                self.file_path, self.curr_line, self.start
+                                self.file_path, self.start_line, self.start_col
                             );
                             exit(1);
                         }
@@ -179,7 +180,7 @@ impl Tokeniser {
                 } else {
                     error!(
                         "{}:{}:{}: Use `not` for negation",
-                        self.file_path, self.curr_line, self.start
+                        self.file_path, self.start_line, self.start_col
                     );
                     exit(1);
                 }
@@ -208,14 +209,6 @@ impl Tokeniser {
                     self.add_token(TokenType::Lt);
                 }
             }
-            '.' => {
-                if self.peek() == '.' {
-                    self.advance();
-                    self.add_token(TokenType::DotDot);
-                } else {
-                    self.add_token(TokenType::Dot);
-                }
-            }
             '"' => {
                 let mut string = String::new();
                 while self.peek() != '"' && !self.is_at_end() {
@@ -225,7 +218,7 @@ impl Tokeniser {
                 if self.is_at_end() {
                     error!(
                         "{}:{}:{}: Unterminated string",
-                        self.file_path, self.curr_line, self.start
+                        self.file_path, self.start_line, self.start_col
                     );
                     exit(1);
                 }
@@ -235,25 +228,26 @@ impl Tokeniser {
             }
             _ => {
                 if c.is_ascii_digit() || c == '.' {
-                    let mut is_float = c == '.';
+                    let mut has_dot = false;
                     let mut number = c.to_string();
                     loop {
                         let curr = self.peek();
+
                         if !(curr.is_ascii_digit() || curr == '.') {
                             break;
                         }
-                        self.advance();
 
-                        is_float = curr == '.' || is_float;
+                        has_dot = curr == '.' || has_dot;
+                        self.advance();
                         number.push(curr);
                     }
 
-                    if is_float {
+                    if has_dot {
                         let f: Option<f64> = number.parse().ok();
                         if f.is_none() {
                             error!(
                                 "{}:{}:{}: Could not parse float {number}",
-                                self.file_path, self.curr_line, self.start
+                                self.file_path, self.start_line, self.start_col
                             );
                             exit(1);
                         }
@@ -263,7 +257,7 @@ impl Tokeniser {
                         if n.is_none() {
                             error!(
                                 "{}:{}:{}: Could not parse int {number}",
-                                self.file_path, self.curr_line, self.start
+                                self.file_path, self.start_line, self.start_col
                             );
                             exit(1);
                         }

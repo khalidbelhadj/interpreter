@@ -2,12 +2,14 @@ use log::error;
 
 use crate::ast::*;
 use crate::token::*;
+use std::array;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::format;
 use std::fmt::Display;
 use std::process::exit;
 use std::rc::Rc;
+use std::thread::panicking;
 
 #[derive(Debug, Clone)]
 pub enum Value {
@@ -129,7 +131,10 @@ impl StackFrame {
                 return Ok(());
             }
         }
-        Err(format!("Variable '{}' not found", name))
+        Err(format!(
+            "Could not assign to variable '{}', not defined",
+            name
+        ))
     }
 }
 
@@ -145,6 +150,37 @@ impl Evaluator {
             call_stack: Vec::new(),
             functions: HashMap::new(),
             structs: HashMap::new(),
+        }
+    }
+
+    fn value_from_type(&self, ty: Type) -> Value {
+        match ty {
+            Type::Unit => Value::Unit,
+            Type::Int => Value::Int(0),
+            Type::Float => Value::Float(0.0),
+            Type::Str => Value::Str("".to_string()),
+            Type::Bool => Value::Bool(false),
+            Type::Struct(s) => {
+                let struct_decl = self.structs.get(&s);
+                if struct_decl.is_none() {
+                    panic!("no proc decl of this type");
+                }
+
+                let struct_decl = struct_decl.unwrap();
+                let map: HashMap<_, _> = struct_decl
+                    .fields
+                    .iter()
+                    .map(|(k, v)| (k.clone(), Value::new_ref(self.value_from_type(v.clone()))))
+                    .collect();
+                Value::Struct(map)
+            }
+            Type::Array(ty, array_length) => match array_length {
+                ArrayLength::Fixed(length) => {
+                    Value::Array(vec![Value::new_ref(self.value_from_type(*ty)); length])
+                }
+                ArrayLength::Dynamic => Value::Array(Vec::new()),
+            },
+            Type::Ref(_) => unreachable!(),
         }
     }
 
@@ -177,7 +213,7 @@ impl Evaluator {
             Expr::Var { name, .. } => self
                 .current_frame()?
                 .lookup(name)
-                .ok_or_else(|| format!("Variable '{}' not found", name)),
+                .ok_or_else(|| format!("lvalue_ref: Variable '{}' not found", name)),
             Expr::Proj { expr, field, .. } => {
                 let base_ref = self.get_lvalue_ref(expr)?;
                 let base_value = base_ref.borrow();
@@ -294,32 +330,45 @@ impl Evaluator {
             }
 
             Stmt::For {
-                name,
-                from,
-                to,
+                name: iterator_name,
+                range,
                 block,
                 ..
             } => {
-                let from_value = self.eval_expr(from)?;
-                let to_value = self.eval_expr(to)?;
-
-                if let (Value::Int(start), Value::Int(end)) = (from_value, to_value) {
-                    self.current_frame()?.push_scope();
-
-                    for i in start..end {
-                        let loop_var = Value::new_ref(Value::Int(i));
-                        self.current_frame()?.define(name.clone(), loop_var);
-
-                        if let Some(return_value) = self.eval_block(block)? {
-                            self.current_frame()?.pop_scope();
-                            return Ok(Some(return_value));
-                        }
+                if let Expr::Call { name, args, span } = range {
+                    if name != "#range" {
+                        return Err("For loop only with #range".to_string());
                     }
 
-                    self.current_frame()?.pop_scope();
+                    let (mut start_value, mut end_value) = (Value::Int(0), Value::Int(0));
+                    match args.len() {
+                        1 => {
+                            end_value = self.eval_expr(&args[0])?;
+                        }
+                        2 => {
+                            start_value = self.eval_expr(&args[0])?;
+                            end_value = self.eval_expr(&args[1])?;
+                        }
+                        _ => return Err("Wrong number of args for #range".to_string()),
+                    };
+
+                    if let (Value::Int(start), Value::Int(end)) = (start_value, end_value) {
+                        // Run the loop
+                        for i in start..end {
+                            let loop_var = Value::new_ref(Value::Int(i));
+                            self.current_frame()?
+                                .define(iterator_name.clone(), loop_var);
+
+                            if let Some(return_value) = self.eval_block(block)? {
+                                self.current_frame()?.pop_scope();
+                                return Ok(Some(return_value));
+                            }
+                        }
+                    }
                 } else {
-                    return Err("For loop bounds must be integers".to_string());
+                    return Err("For loop only with #range".to_string());
                 }
+
                 Ok(None)
             }
 
@@ -385,11 +434,21 @@ impl Evaluator {
         match expr {
             Expr::Unit(_) => Ok(Value::Unit),
             Expr::Lit(lit) => self.eval_literal(lit),
+            Expr::MakeArray { ty, expr, span } => {
+                let length = self.eval_expr(expr)?;
+                match length {
+                    Value::Int(i) => Ok(self.value_from_type(Type::Array(
+                        Box::new(ty.clone()),
+                        ArrayLength::Fixed(i as usize),
+                    ))),
+                    _ => Err("bruh".to_string()),
+                }
+            }
             Expr::Var { name, .. } => {
                 let value_ref = self
                     .current_frame()?
                     .lookup(name)
-                    .ok_or_else(|| format!("Variable '{}' not found", name))?;
+                    .ok_or_else(|| format!("eval_expr: Variable '{}' not found", name))?;
                 let x = Ok(value_ref.borrow().clone());
                 x
             }

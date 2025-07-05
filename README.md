@@ -117,7 +117,25 @@ let numbers [int, 5] = [1, 2, 3, 4, 5];
 #print(sum(numbers));
 ```
 
-The `#length` builtin is used to get the length of an array or slice.
+The `#length` builtin is used to get the length of an array or slice. If the length of an array is not known at compile time, it can be created using the `#array` directive.
+
+```
+let length int = 20;
+let xs [int] = #array(int, 20)
+```
+
+This creates an array of the specified type and size with it's default value.
+
+### Default Values
+
+In some cases, variables might be uninitialised. In this case they take their default value. Primitive types have specified default values, and structs have fields which recursively take their default values.
+
+| Type | Value |
+| --- | ---
+| `int` | `0` |
+| `float` | `0.0` |
+| `string` | `""` |
+| `[T]` | `[]` |
 
 ## References
 
@@ -171,7 +189,7 @@ This is a multi line comment
   - use the `&` operator to get the reference of an expression
   - use references as types and function semanticsn
 - [x] Floats
-- [ ] `not` operator
+- [x] `not` operator
 - [ ] Negative numbers
 - [ ] Fixed precision numbers like u32, i64 and so on
 - [ ] Make strings more concrete, array of chars? How do we represent them?
@@ -181,4 +199,3 @@ This is a multi line comment
 - [ ] Type inference
 - [ ] Standard library
   - collections
-

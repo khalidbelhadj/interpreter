@@ -347,15 +347,12 @@ impl Parser {
                     let name = self.consume_identifier();
                     self.consume(TokenType::In);
 
-                    let from = self.parse_expr();
-                    self.consume(TokenType::DotDot);
-                    let to = self.parse_condition();
+                    let range = self.parse_condition();
 
                     let block = self.parse_block();
                     statements.push(Stmt::For {
                         name,
-                        from,
-                        to,
+                        range,
                         block,
                         span,
                     });
@@ -737,6 +734,20 @@ impl Parser {
 
                 match self.peek_type() {
                     TokenType::LeftParen => {
+                        if name == "#array" {
+                            self.consume(TokenType::LeftParen);
+                            let ty = self.parse_type();
+                            self.consume(TokenType::Comma);
+                            let expr = self.parse_expr();
+                            self.consume(TokenType::RightParen);
+
+                            return Expr::MakeArray {
+                                ty,
+                                expr: Box::new(expr),
+                                span: Span::empty(),
+                            };
+                        }
+
                         let args = self.parse_arguments();
                         let end_span = self.peek().span.clone();
                         Expr::Call {

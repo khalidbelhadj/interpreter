@@ -28,7 +28,6 @@ pub enum TokenType {
 
     And,
     Or,
-    DotDot,
     LeftBracket,
     RightBracket,
     Not,
@@ -90,7 +89,6 @@ impl PartialEq for TokenType {
             (TokenType::Unit, TokenType::Unit) => true,
             (TokenType::And, TokenType::And) => true,
             (TokenType::Or, TokenType::Or) => true,
-            (TokenType::DotDot, TokenType::DotDot) => true,
             (TokenType::LeftBracket, TokenType::LeftBracket) => true,
             (TokenType::RightBracket, TokenType::RightBracket) => true,
             (TokenType::Not, TokenType::Not) => true,
@@ -145,7 +143,6 @@ impl Display for TokenType {
             TokenType::Unit => "unit",
             TokenType::And => "and",
             TokenType::Or => "or",
-            TokenType::DotDot => "..",
             TokenType::LeftBracket => "[",
             TokenType::RightBracket => "]",
             TokenType::Not => "!",

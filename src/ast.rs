@@ -65,8 +65,7 @@ pub enum Stmt {
     },
     For {
         name: String,
-        from: Expr,
-        to: Expr,
+        range: Expr,
         block: Block,
         span: Span,
     },
@@ -105,7 +104,11 @@ pub enum Expr {
         args: Vec<Expr>,
         span: Span,
     },
-
+    MakeArray {
+        ty: Type,
+        expr: Box<Expr>,
+        span: Span,
+    },
     Proj {
         expr: Box<Expr>,
         field: String,
@@ -156,8 +159,8 @@ impl Display for Lit {
             Lit::Float(n, _) => write!(f, "{}", n),
             Lit::Str(s, _) => write!(f, "\"{}\"", s),
             Lit::Bool(b, _) => write!(f, "{}", b),
-            Lit::Struct(s, span) => todo!(),
-            Lit::Array(a, span) => todo!(),
+            Lit::Struct(s, _) => write!(f, "{:?}", s),
+            Lit::Array(a, _) => write!(f, "{:?}", a),
         }
     }
 }
@@ -188,6 +191,7 @@ impl Display for Expr {
             Expr::Index { expr, index, .. } => write!(f, "{}[{}]", expr, index),
             Expr::Ref(expr) => write!(f, "&{}", expr),
             Expr::Deref(expr) => write!(f, "*{}", expr),
+            Expr::MakeArray { ty, expr, span } => todo!(),
         }
     }
 }

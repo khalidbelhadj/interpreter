@@ -155,6 +155,9 @@ impl Typer {
             Expr::Lit(Lit::Int(val, lit_span)) => Some(Type::Int),
             Expr::Lit(Lit::Float(val, lit_span)) => Some(Type::Float),
             Expr::Lit(Lit::Str(val, lit_span)) => Some(Type::Str),
+            Expr::MakeArray { ty, expr, span } => {
+                Some(Type::Array(Box::new(ty.clone()), ArrayLength::Dynamic))
+            }
             Expr::Call { name, args, span } => {
                 let (params, ret_ty) = self
                     .get_proc(name)
@@ -418,13 +421,10 @@ impl Typer {
                 }
                 Stmt::For {
                     name,
-                    from,
-                    to,
+                    range,
                     block,
                     span,
                 } => {
-                    self.type_check_expr(from, &Type::Int);
-                    self.type_check_expr(to, &Type::Int);
                     let mut new_scope = HashMap::new();
                     new_scope.insert(name.clone(), Type::Int);
                     self.type_check_block(new_scope, block, ret_ty.clone());
@@ -502,7 +502,22 @@ impl Typer {
                     self.type_check_expr(value, ty);
                 }
             }
-
+            (
+                Expr::MakeArray {
+                    ty: elem_ty,
+                    expr,
+                    span,
+                },
+                Type::Array(ty, ArrayLength::Dynamic),
+            ) => {
+                if *elem_ty != **ty {
+                    self.add_error(format!(
+                        "{}:{}:{} Expected array of {:?}, got array of {:?}",
+                        self.file_path, span.start_line, span.start_column, elem_ty, ty
+                    ));
+                }
+                self.type_check_expr(expr, &Type::Int);
+            }
             (Expr::Call { name, args, span }, ty) => {
                 if name == "#length" {
                     let arg = args.first().expect("Argument not found");
@@ -612,34 +627,14 @@ impl Typer {
 impl Stmt {
     fn span(&self) -> &Span {
         match self {
-            Stmt::VarDecl {
-                span,
-                name,
-                ty,
-                expr,
-            } => span,
-            Stmt::Assign { span, lhs, rhs } => span,
-            Stmt::If {
-                cond,
-                then_block,
-                span,
-            } => span,
-            Stmt::IfElse {
-                cond,
-                then_block,
-                else_block,
-                span,
-            } => span,
-            Stmt::While { cond, block, span } => span,
-            Stmt::For {
-                name,
-                from,
-                to,
-                block,
-                span,
-            } => span,
-            Stmt::Call { name, args, span } => span,
-            Stmt::Ret { expr, span } => span,
+            Stmt::VarDecl { span, .. } => span,
+            Stmt::Assign { span, .. } => span,
+            Stmt::If { span, .. } => span,
+            Stmt::IfElse { span, .. } => span,
+            Stmt::While { span, .. } => span,
+            Stmt::For { span, .. } => span,
+            Stmt::Call { span, .. } => span,
+            Stmt::Ret { span, .. } => span,
         }
     }
 }
@@ -664,12 +659,13 @@ impl Expr {
             Expr::Ref(expr) => expr.span(),
             Expr::Deref(expr) => expr.span(),
             Expr::Var { name, span } => span,
-            Expr::Binary { lhs, op, rhs, span } => span,
-            Expr::Unary { op, rhs, span } => span,
-            Expr::Call { name, args, span } => span,
-            Expr::Proj { expr, field, span } => span,
-            Expr::Index { expr, index, span } => span,
+            Expr::Binary { span, .. } => span,
+            Expr::Unary { span, .. } => span,
+            Expr::Call { span, .. } => span,
+            Expr::Proj { span, .. } => span,
+            Expr::Index { span, .. } => span,
             Expr::Lit(lit) => lit.span(),
+            Expr::MakeArray { span, .. } => span,
         }
     }
 }

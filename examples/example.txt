@@ -1,4 +1,9 @@
+A :: struct {
+    a int,
+    xs [int]
+}
+
 main :: () unit {
-    let x bool = not false and true;
-    #print(x);
+    let ys [[A]] = #array([A], 10);
+    #print(ys);
 }
