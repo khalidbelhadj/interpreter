@@ -1,4 +1,5 @@
-use std::{collections::HashMap, process::exit};
+use core::{error, panic};
+use std::{collections::HashMap, fmt::Display, process::exit};
 
 use crate::tokeniser::*;
 use log::{debug, error};
@@ -88,9 +89,14 @@ pub enum Expr {
         name: String,
         span: Span,
     },
-    Bin {
+    Unary {
+        op: UnaryOp,
+        rhs: Box<Expr>,
+        span: Span,
+    },
+    Binary {
         lhs: Box<Expr>,
-        op: BinOp,
+        op: BinaryOp,
         rhs: Box<Expr>,
         span: Span,
     },
@@ -112,6 +118,78 @@ pub enum Expr {
     },
     Ref(Box<Expr>),
     Deref(Box<Expr>),
+}
+
+impl Display for BinaryOp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let op_str = match self {
+            BinaryOp::Add => "+",
+            BinaryOp::Sub => "-",
+            BinaryOp::Mul => "*",
+            BinaryOp::Div => "/",
+            BinaryOp::Eq => "==",
+            BinaryOp::Neq => "!=",
+            BinaryOp::Lt => "<",
+            BinaryOp::Leq => "<=",
+            BinaryOp::Gt => ">",
+            BinaryOp::Geq => ">=",
+            BinaryOp::And => "and",
+            BinaryOp::Or => "or",
+        };
+        write!(f, "{}", op_str)
+    }
+}
+
+impl Display for UnaryOp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let op_str = match self {
+            UnaryOp::Not => "not",
+        };
+        write!(f, "{}", op_str)
+    }
+}
+
+impl Display for Lit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Lit::Int(n, _) => write!(f, "{}", n),
+            Lit::Float(n, _) => write!(f, "{}", n),
+            Lit::Str(s, _) => write!(f, "\"{}\"", s),
+            Lit::Bool(b, _) => write!(f, "{}", b),
+            Lit::Struct(s, span) => todo!(),
+            Lit::Array(a, span) => todo!(),
+        }
+    }
+}
+
+impl Display for Expr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Expr::Unit(_) => write!(f, "()"),
+            Expr::Lit(lit) => write!(f, "{}", lit),
+            Expr::Var { name, .. } => write!(f, "{}", name),
+            Expr::Binary { lhs, op, rhs, .. } => {
+                write!(f, "({} {} {})", lhs, op, rhs)
+            }
+            Expr::Unary { op, rhs, span } => {
+                write!(f, "{}{}", op, rhs)
+            }
+            Expr::Call { name, args, .. } => {
+                write!(f, "{}(", name)?;
+                for (i, arg) in args.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", arg)?;
+                }
+                write!(f, ")")
+            }
+            Expr::Proj { expr, field, .. } => write!(f, "{}.{}", expr, field),
+            Expr::Index { expr, index, .. } => write!(f, "{}[{}]", expr, index),
+            Expr::Ref(expr) => write!(f, "&{}", expr),
+            Expr::Deref(expr) => write!(f, "*{}", expr),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
@@ -153,7 +231,12 @@ impl PartialEq for Lit {
 impl Eq for Lit {}
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub enum BinOp {
+pub enum UnaryOp {
+    Not,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+pub enum BinaryOp {
     Add,
     Sub,
     Mul,
@@ -168,20 +251,6 @@ pub enum BinOp {
 
     And,
     Or,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Prec {
-    Base, // Lowest precedence for non-operators
-    Dot,
-    Index,
-    Call,
-    LogicalOr,      // ||
-    LogicalAnd,     // &&
-    Equality,       // ==, !=
-    Relational,     // <, >, <=, >=
-    Additive,       // +, -
-    Multiplicative, // *, /
 }
 
 impl Expr {
@@ -208,33 +277,28 @@ impl Expr {
     }
 }
 
-impl BinOp {
+impl BinaryOp {
     pub fn is_arithmetic(&self) -> bool {
-        matches!(self, BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div)
+        matches!(
+            self,
+            BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div
+        )
     }
 
     pub fn is_logical(&self) -> bool {
-        matches!(self, BinOp::And | BinOp::Or)
+        matches!(self, BinaryOp::And | BinaryOp::Or)
     }
 
     pub fn is_comparison(&self) -> bool {
         matches!(
             self,
-            BinOp::Eq | BinOp::Neq | BinOp::Lt | BinOp::Leq | BinOp::Gt | BinOp::Geq
+            BinaryOp::Eq
+                | BinaryOp::Neq
+                | BinaryOp::Lt
+                | BinaryOp::Leq
+                | BinaryOp::Gt
+                | BinaryOp::Geq
         )
-    }
-}
-
-impl BinOp {
-    pub fn precedence(&self) -> Prec {
-        match self {
-            BinOp::Or => Prec::LogicalOr,
-            BinOp::And => Prec::LogicalAnd,
-            BinOp::Eq | BinOp::Neq => Prec::Equality,
-            BinOp::Lt | BinOp::Gt | BinOp::Leq | BinOp::Geq => Prec::Relational,
-            BinOp::Add | BinOp::Sub => Prec::Additive,
-            BinOp::Mul | BinOp::Div => Prec::Multiplicative,
-        }
     }
 }
 
@@ -246,7 +310,7 @@ pub struct Parser {
 }
 
 impl Parser {
-    pub fn new(file_path: String, tokens: Vec<Token>) -> Parser { 
+    pub fn new(file_path: String, tokens: Vec<Token>) -> Parser {
         Parser {
             file_path,
             tokens,
@@ -255,23 +319,24 @@ impl Parser {
         }
     }
 
-    fn is_at_end(&self) -> bool {
-        self.current >= self.tokens.len()
-    }
-
     fn peek(&self) -> Token {
         self.tokens
             .get(self.current)
             .cloned()
-            .unwrap_or(Token::new(TokenType::EOF, Span::new(0, 0, 0, 0)))
+            .unwrap_or(Token::new(TokenType::EOF, Span::empty()))
     }
 
-    fn advance(&mut self) {
+    fn peek_type(&self) -> TokenType {
+        self.peek().token_type
+    }
+
+    fn advance(&mut self) -> Token {
         self.current += 1;
+        self.peek()
     }
 
     fn consume(&mut self, expected: TokenType) {
-        if self.peek().token_type == expected {
+        if self.peek_type() == expected {
             self.current += 1;
         } else {
             let tok = self.peek();
@@ -302,21 +367,19 @@ impl Parser {
     }
 
     pub fn parse(&mut self) {
-        while !self.is_at_end() {
+        while self.current < self.tokens.len() {
             // Get the top level identifier name, either a struct or proc
             let name = self.consume_identifier();
 
             // Consume compile time assign operator
-            
+
             self.consume(TokenType::Colon);
             self.consume(TokenType::Colon);
 
-            let tok = self.peek().token_type;
+            let tok = self.peek_type();
             match tok {
                 // Proc decleration
                 TokenType::LeftParen => {
-           
-                    
                     let proc_decl = self.parse_proc(name);
                     self.program.push(TopLevel::ProcDecl(proc_decl));
                 }
@@ -334,12 +397,11 @@ impl Parser {
                     exit(1);
                 }
             }
-
         }
     }
 
     fn parse_type(&mut self) -> Type {
-        let ty = self.peek().token_type;
+        let ty = self.peek_type();
         match ty {
             TokenType::Ampersand => {
                 self.advance();
@@ -375,15 +437,13 @@ impl Parser {
 
                 // Get the element type
                 let elem_ty = self.parse_type();
-
                 let tok = self.peek();
 
                 // Fixed size array
                 if let TokenType::Comma = tok.token_type {
                     self.advance();
-                    if let TokenType::IntegerLiteral(length) = self.peek().token_type {
-                        self.advance();
-                        if length <= 0 {
+                    if let TokenType::IntegerLiteral(length) = self.peek_type() {
+                        if length < 0 {
                             let tok = self.peek();
                             error!(
                                 "{}:{}:{} Array length must be greater than 0",
@@ -435,7 +495,7 @@ impl Parser {
 
         let mut fields = HashMap::new();
         loop {
-            if self.peek().token_type == TokenType::RightBrace {
+            if self.peek_type() == TokenType::RightBrace {
                 break;
             }
 
@@ -444,7 +504,7 @@ impl Parser {
             fields.insert(field_name, field_ty);
 
             // This ensures that there is no trailing comma
-            if self.peek().token_type == TokenType::RightBrace {
+            if self.peek_type() == TokenType::RightBrace {
                 break;
             }
 
@@ -467,7 +527,7 @@ impl Parser {
         let mut params = HashMap::new();
         loop {
             // Right paren or "<param> <type>"
-            if self.peek().token_type == TokenType::RightParen {
+            if self.peek_type() == TokenType::RightParen {
                 break;
             }
             let param_name = self.consume_identifier();
@@ -475,7 +535,7 @@ impl Parser {
             params.insert(param_name, param_ty);
 
             // Right paren or comma
-            if self.peek().token_type == TokenType::RightParen {
+            if self.peek_type() == TokenType::RightParen {
                 break;
             }
 
@@ -503,7 +563,7 @@ impl Parser {
         let mut args = vec![];
         loop {
             // Right paren or arg expression
-            if self.peek().token_type == TokenType::RightParen {
+            if self.peek_type() == TokenType::RightParen {
                 break;
             }
 
@@ -511,7 +571,7 @@ impl Parser {
             args.push(arg_expr);
 
             // Prevents trailing comma
-            if self.peek().token_type == TokenType::RightParen {
+            if self.peek_type() == TokenType::RightParen {
                 break;
             }
 
@@ -528,7 +588,7 @@ impl Parser {
 
         let mut statements = vec![];
 
-        while self.peek().token_type != TokenType::RightBrace {
+        while self.peek_type() != TokenType::RightBrace {
             let statement = self.peek();
             match statement.token_type {
                 // Statements
@@ -553,7 +613,7 @@ impl Parser {
                     let cond = self.parse_condition();
                     let then_block = self.parse_block();
 
-                    if self.peek().token_type == TokenType::Else {
+                    if self.peek_type() == TokenType::Else {
                         self.consume(TokenType::Else);
                         let else_block = self.parse_block();
                         statements.push(Stmt::IfElse {
@@ -599,7 +659,7 @@ impl Parser {
                 TokenType::Return => {
                     let span = statement.span.clone();
                     self.consume(TokenType::Return);
-                    let expr = if self.peek().token_type == TokenType::Semicolon {
+                    let expr = if self.peek_type() == TokenType::Semicolon {
                         Expr::Unit(span.clone())
                     } else {
                         self.parse_expr()
@@ -611,7 +671,7 @@ impl Parser {
                 // Try to parse expression for call or assignment
                 _ => {
                     let expr = self.parse_expr();
-                    match self.peek().token_type {
+                    match self.peek_type() {
                         TokenType::Semicolon => {
                             // Check that it's a procedure call
                             let stmt_span = self.peek().span.clone();
@@ -686,7 +746,7 @@ impl Parser {
         let mut fields = HashMap::new();
         loop {
             // Right brace or "<field> = <expression>"
-            if self.peek().token_type == TokenType::RightBrace {
+            if self.peek_type() == TokenType::RightBrace {
                 break;
             }
 
@@ -696,7 +756,7 @@ impl Parser {
             fields.insert(field_name, field_expr);
 
             // Right brace or comma
-            if self.peek().token_type == TokenType::RightBrace {
+            if self.peek_type() == TokenType::RightBrace {
                 break;
             }
 
@@ -708,34 +768,244 @@ impl Parser {
     }
 
     fn parse_expr(&mut self) -> Expr {
-        self.parse_expr_prec(Prec::Base, false)
+        self._parse_expr(false)
     }
 
     fn parse_condition(&mut self) -> Expr {
-        self.parse_expr_prec(Prec::Base, true)
+        self._parse_expr(true)
     }
 
-    fn parse_expr_prec(&mut self, prec: Prec, is_condition: bool) -> Expr {
-        let mut lhs = match self.peek().token_type {
-            TokenType::IntegerLiteral(n) => {
-                let span = self.peek().span.clone();
+    fn _parse_expr(&mut self, is_condition: bool) -> Expr {
+        self.parse_disjuncts(is_condition)
+    }
+
+    fn parse_disjuncts(&mut self, is_condition: bool) -> Expr {
+        let mut lhs = self.parse_conjuncts(is_condition);
+
+        while TokenType::Or == self.peek_type() {
+            self.advance();
+            let rhs = self.parse_conjuncts(is_condition);
+
+            lhs = Expr::Binary {
+                lhs: Box::new(lhs),
+                op: BinaryOp::Or,
+                rhs: Box::new(rhs),
+                span: Span::empty(),
+            };
+        }
+
+        lhs
+    }
+
+    fn parse_conjuncts(&mut self, is_condition: bool) -> Expr {
+        let mut lhs = self.parse_equality(is_condition);
+
+        while TokenType::And == self.peek_type() {
+            self.advance();
+            let rhs = self.parse_equality(is_condition);
+
+            lhs = Expr::Binary {
+                lhs: Box::new(lhs),
+                op: BinaryOp::And,
+                rhs: Box::new(rhs),
+                span: Span::empty(),
+            };
+        }
+
+        lhs
+    }
+
+    fn parse_equality(&mut self, is_condition: bool) -> Expr {
+        let mut lhs = self.parse_comparison(is_condition);
+
+        use TokenType::*;
+        loop {
+            let op = match self.peek_type() {
+                EqualEqual => BinaryOp::Eq,
+                NotEqual => BinaryOp::Neq,
+                _ => break,
+            };
+            self.advance();
+
+            let rhs = self.parse_comparison(is_condition);
+
+            lhs = Expr::Binary {
+                lhs: Box::new(lhs),
+                op,
+                rhs: Box::new(rhs),
+                span: Span::empty(),
+            };
+        }
+
+        lhs
+    }
+
+    fn parse_comparison(&mut self, is_condition: bool) -> Expr {
+        let mut lhs = self.parse_term(is_condition);
+
+        use TokenType::*;
+        loop {
+            let op = match self.peek_type() {
+                Gt => BinaryOp::Gt,
+                Geq => BinaryOp::Geq,
+                Lt => BinaryOp::Lt,
+                Leq => BinaryOp::Leq,
+                _ => break,
+            };
+            self.advance();
+
+            let rhs = self.parse_term(is_condition);
+
+            lhs = Expr::Binary {
+                lhs: Box::new(lhs),
+                op,
+                rhs: Box::new(rhs),
+                span: Span::empty(),
+            };
+        }
+
+        lhs
+    }
+
+    fn parse_term(&mut self, is_condition: bool) -> Expr {
+        let mut lhs = self.parse_factor(is_condition);
+
+        use TokenType::*;
+        loop {
+            let op = match self.peek_type() {
+                Plus => BinaryOp::Add,
+                Minus => BinaryOp::Sub,
+                _ => break,
+            };
+            self.advance();
+
+            let rhs = self.parse_factor(is_condition);
+
+            lhs = Expr::Binary {
+                lhs: Box::new(lhs),
+                op,
+                rhs: Box::new(rhs),
+                span: Span::empty(),
+            };
+        }
+
+        lhs
+    }
+
+    fn parse_factor(&mut self, is_condition: bool) -> Expr {
+        let mut lhs = self.parse_prefix(is_condition);
+
+        use TokenType::*;
+        loop {
+            let op = match self.peek_type() {
+                Star => BinaryOp::Mul,
+                Slash => BinaryOp::Div,
+                _ => break,
+            };
+            self.advance();
+
+            let rhs = self.parse_prefix(is_condition);
+
+            lhs = Expr::Binary {
+                lhs: Box::new(lhs),
+                op,
+                rhs: Box::new(rhs),
+                span: Span::empty(),
+            };
+        }
+
+        lhs
+    }
+
+    fn parse_prefix(&mut self, is_condition: bool) -> Expr {
+        use TokenType::*;
+
+        match self.peek_type() {
+            Not => {
                 self.advance();
-                Expr::Lit(Lit::Int(n, span.clone()))
+                let rhs = self.parse_prefix(is_condition);
+
+                return Expr::Unary {
+                    op: UnaryOp::Not,
+                    rhs: Box::new(rhs),
+                    span: Span::empty(),
+                };
             }
-            TokenType::FloatLiteral(f) => {
-                let span = self.peek().span.clone();
+            Ampersand => {
                 self.advance();
-                Expr::Lit(Lit::Float(f, span.clone()))
+                let rhs = self.parse_prefix(is_condition);
+                return Expr::Ref(Box::new(rhs));
             }
-            TokenType::Hash | TokenType::Ident(_) => {
+            Star => {
+                self.advance();
+                let rhs = self.parse_prefix(is_condition);
+                return Expr::Deref(Box::new(rhs));
+            }
+            _ => {}
+        }
+
+        if let Not = self.peek_type() {}
+
+        self.parse_postfix(is_condition)
+    }
+
+    fn parse_postfix(&mut self, is_condition: bool) -> Expr {
+        let mut lhs = self.parse_primary(is_condition);
+
+        loop {
+            lhs = match self.peek_type() {
+                TokenType::LeftBracket => {
+                    self.advance();
+                    let index_expr = self.parse_expr();
+                    let end_span = self.peek().span.clone();
+                    self.consume(TokenType::RightBracket);
+                    Expr::Index {
+                        expr: Box::new(lhs),
+                        index: Box::new(index_expr),
+                        span: Span::new(
+                            0,
+                            0, // TODO: Fix this
+                            end_span.end_line,
+                            end_span.end_column,
+                        ),
+                    }
+                }
+                TokenType::Dot => {
+                    self.advance();
+                    let field = self.consume_identifier();
+                    let end_span = self.peek().span.clone();
+                    Expr::Proj {
+                        expr: Box::new(lhs),
+                        field,
+                        span: Span::new(
+                            0,
+                            0, // TODO: Fix this
+                            end_span.end_line,
+                            end_span.end_column,
+                        ),
+                    }
+                }
+                _ => break,
+            };
+        }
+
+        lhs
+    }
+
+    fn parse_primary(&mut self, is_condition: bool) -> Expr {
+        match self.peek_type() {
+            TokenType::IntegerLiteral(i) => Expr::Lit(Lit::Int(i, self.advance().span)),
+            TokenType::FloatLiteral(f) => Expr::Lit(Lit::Float(f, self.advance().span)),
+            TokenType::StringLiteral(s) => Expr::Lit(Lit::Str(s, self.advance().span)),
+            TokenType::Ident(_) | TokenType::Hash => {
                 // Identifier
                 let start_span = self.peek().span.clone();
-                let name = if let TokenType::Ident(name) = self.peek().token_type {
+                let name = if let TokenType::Ident(name) = self.peek_type() {
                     self.advance();
                     name
                 } else {
                     self.advance();
-                    if let TokenType::Ident(name) = self.peek().token_type {
+                    if let TokenType::Ident(name) = self.peek_type() {
                         self.advance();
                         format!("#{name}")
                     } else {
@@ -751,7 +1021,7 @@ impl Parser {
                     }
                 };
 
-                match self.peek().token_type {
+                match self.peek_type() {
                     TokenType::LeftParen => {
                         let args = self.parse_arguments();
                         let end_span = self.peek().span.clone();
@@ -785,149 +1055,41 @@ impl Parser {
                     },
                 }
             }
-            TokenType::StringLiteral(s) => {
-                let span = self.peek().span.clone();
-                self.advance();
-                Expr::Lit(Lit::Str(s, span.clone()))
-            }
-            TokenType::True => {
-                let span = self.peek().span.clone();
-                self.advance();
-                Expr::Lit(Lit::Bool(true, span.clone()))
-            }
-            TokenType::False => {
-                let span = self.peek().span.clone();
-                self.advance();
-                Expr::Lit(Lit::Bool(false, span.clone()))
-            }
             TokenType::LeftParen => {
-                let start_span = self.peek().span.clone();
                 self.advance();
-                let expr = self.parse_expr(); // Parse inner expression
-                if let TokenType::RightParen = self.peek().token_type {
-                    let end_span = self.peek().span.clone();
-                    self.advance();
-                    expr
-                } else {
-                    let tok = self.peek();
-                    error!(
-                        "{}:{}:{} Expected ')' after expression",
-                        self.file_path, tok.span.start_line, tok.span.start_column
-                    );
-                    exit(1);
-                }
+                let inner_expr = self.parse_expr();
+                self.consume(TokenType::RightParen);
+                inner_expr
             }
-            TokenType::LeftBracket => {
-                let start_span = self.peek().span.clone();
-                self.advance();
-                let mut elem_exprs = vec![];
-                while self.peek().token_type != TokenType::RightBracket {
-                    let elem_expr = self.parse_expr();
-                    elem_exprs.push(elem_expr);
-
-                    if self.peek().token_type == TokenType::RightBracket {
-                        break;
-                    }
-
-                    self.consume(TokenType::Comma);
-                }
-
-                let end_span = self.peek().span.clone();
-                self.consume(TokenType::RightBracket);
-                Expr::Lit(Lit::Array(elem_exprs, Span::join(start_span, end_span)))
-            }
-
-            TokenType::Ampersand => {
-                self.advance();
-                let expr = self.parse_expr();
-                return Expr::Ref(Box::new(expr));
-            }
-            TokenType::Star => {
-                self.advance();
-                let expr = self.parse_expr();
-                return Expr::Deref(Box::new(expr));
-            }
+            TokenType::LeftBracket => self.parse_array_literal(),
             _ => {
                 let tok = self.peek();
                 error!(
-                    "{}:{}:{} Unexpected token while parsing expression: {}",
-                    self.file_path, tok.span.start_line, tok.span.start_column, tok.token_type
+                    "{}:{}:{} {:?}",
+                    self.file_path, tok.span.start_line, tok.span.start_column, tok
                 );
-                exit(1);
-            }
-        };
-
-        loop {
-            if (self.peek().token_type == TokenType::LeftBracket) {
-                self.advance();
-                let index_expr = self.parse_expr();
-                let end_span = self.peek().span.clone();
-                self.consume(TokenType::RightBracket);
-                lhs = Expr::Index {
-                    expr: Box::new(lhs),
-                    index: Box::new(index_expr),
-                    span: Span::new(
-                        0,
-                        0, // TODO: Fix this
-                        end_span.end_line,
-                        end_span.end_column,
-                    ),
-                };
-            }
-            if (self.peek().token_type == TokenType::Dot) {
-                self.advance();
-                let field = self.consume_identifier();
-                let end_span = self.peek().span.clone();
-                lhs = Expr::Proj {
-                    expr: Box::new(lhs),
-                    field,
-                    span: Span::new(
-                        0,
-                        0, // TODO: Fix this
-                        end_span.end_line,
-                        end_span.end_column,
-                    ),
-                }
-            } else {
-                break;
+                panic!()
             }
         }
-
-        while let Some(op) = self.peek_binary_operator() {
-            let op_prec = op.precedence();
-            if op_prec <= prec {
-                break;
-            }
-
-            let span = self.peek().span.clone();
-            self.advance(); // Consume operator
-            let rhs = self.parse_expr_prec(op_prec, false); // Parse right-hand side with higher precedence
-            lhs = Expr::Bin {
-                lhs: Box::new(lhs),
-                op,
-                rhs: Box::new(rhs),
-                span,
-            };
-        }
-
-        lhs
     }
 
-    fn peek_binary_operator(&mut self) -> Option<BinOp> {
-        match self.peek().token_type {
-            TokenType::Plus => Some(BinOp::Add),
-            TokenType::Minus => Some(BinOp::Sub),
-            TokenType::Star => Some(BinOp::Mul),
-            TokenType::Slash => Some(BinOp::Div),
-            TokenType::And => Some(BinOp::And),
-            TokenType::Or => Some(BinOp::Or),
-            TokenType::EqualEqual => Some(BinOp::Eq),
-            TokenType::NotEqual => Some(BinOp::Neq),
-            TokenType::Less => Some(BinOp::Lt),
-            TokenType::Greater => Some(BinOp::Gt),
-            TokenType::LessEqual => Some(BinOp::Leq),
-            TokenType::GreaterEqual => Some(BinOp::Geq),
-            _ => None,
+    fn parse_array_literal(&mut self) -> Expr {
+        self.consume(TokenType::LeftBracket);
+        let start_span = self.peek().span.clone();
+        let mut elem_exprs = vec![];
+        while self.peek_type() != TokenType::RightBracket {
+            let elem_expr = self.parse_expr();
+            elem_exprs.push(elem_expr);
+
+            if self.peek_type() == TokenType::RightBracket {
+                break;
+            }
+
+            self.consume(TokenType::Comma);
         }
+
+        let end_span = self.peek().span.clone();
+        self.consume(TokenType::RightBracket);
+        Expr::Lit(Lit::Array(elem_exprs, Span::join(start_span, end_span)))
     }
 }

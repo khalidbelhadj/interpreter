@@ -1,11 +1,14 @@
 # Interpreter
 
-An interpreter for a made up language. The purpose of this project is to learn more about programming languages by implementing a parsing, type checking, code generation, garbage collection and a virtual machine.
+This is an interpreter for a made up language. The purpose of this project is to learn more about programming languages by implementing parsing, type checking, code generation, garbage collection and a virtual machine.
 
+Parsing is done using a recursive decent approach, but there is no specified formal grammar I'm kind of just winging it. The syntax of the language may change in the future, but the general idea is to stick with simple expressive syntax with no weird expressions or whatever. Something similar to the typical procedural languages.
+
+Type checking uses a bidirectional type checker. The first mode is inference mode which takes an expression and inferes the type from it. The second mode is checking, which takes and expression and a type and ensures that the expressions is the expected type. This gives us flexability to do more advances type inference in the future. Otherwise, the type system is nominal, with strong explicit types.
+
+There is no target of compilation yet, the AST is evaluated directly with a simple VM. The idea is that the language will be compiled to bytecode which runs on it's own VM. At the moment there is no consideration for garbage collection and memory is reference counted, but I plan to implement a garbage collector for the language.
 
 ## Language Reference
-
-This lanugage is statically and strongly typed and compiled, with  a simple C-like procedural approach (no OOP). There is no target of compilation yet, the AST is evaluated directly with a simple VM. The idea is that the language will be compiled to bytecode which runs on it's own VM. At the moment there is no consideration for garbage collection and memory is reference counted, but I plan to implement a garbage collector for the language.
 
 ### Procedures
 
@@ -34,7 +37,7 @@ Point2D :: struct {
 }
 
 main :: () unit {
-    let p1 Point = {
+    let p1 Point = Point {
         x = 1,
         y = 2
     };
@@ -127,6 +130,19 @@ main :: () unit {
 }
 ```
 
+## Comments
+Comments are C-like, `//` for single line and `/**/` for multi line. The language supports nested comments too.
+
+```
+// This is a line comment
+/*
+This is a multi line comment
+    /*
+    This is a nested multiline comment
+    */
+*/
+```
+
 ## To do
 
 - [x] Fix assignment lhs to allow more complex expressions
@@ -145,8 +161,8 @@ main :: () unit {
   - use the `&` operator to get the reference of an expression
   - use references as types and function semanticsn
 - [x] Floats
-- [ ] Negative numbers
 - [ ] `not` operator
+- [ ] Negative numbers
 - [ ] Fixed precision numbers like u32, i64 and so on
 - [ ] Make strings more concrete, array of chars? How do we represent them?
 - [ ] Tuples

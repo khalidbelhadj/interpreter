@@ -1,0 +1,273 @@
+// Expression Tests for Custom Language
+
+// Basic Arithmetic Precedence Tests
+
+test_basic_arithmetic :: () unit {
+    #print("=== Basic Arithmetic Tests ===");
+
+    // Test: 2 + 3 * 4 (should be 14, not 20)
+    let result1 int = 2 + 3 * 4;
+    #print("Expected: 14, Actual:", result1);
+
+    // Test: (2 + 3) * 4 (should be 20)
+    let result2 int = (2 + 3) * 4;
+    #print("Expected: 20, Actual:", result2);
+
+    // Test: 10 - 6 / 2 (should be 7, not 2)
+    let result3 int = 10 - 6 / 2;
+    #print("Expected: 7, Actual:", result3);
+
+    // Test: (10 - 6) / 2 (should be 2)
+    let result4 int = (10 - 6) / 2;
+    #print("Expected: 2, Actual:", result4);
+
+    // Test: 2 * 3 + 4 * 5 (should be 26)
+    let result5 int = 2 * 3 + 4 * 5;
+    #print("Expected: 26, Actual:", result5);
+
+    // Test: 100 / 5 / 2 (should be 10, left-associative)
+    let result6 int = 100 / 5 / 2;
+    #print("Expected: 10, Actual:", result6);
+
+    // Test: 100 / (5 / 2) (should be 50 if integer division, depends on implementation)
+    let result7 int = 100 / (5 / 2);
+    #print("Expected: 50 (if 5/2 = 2), Actual:", result7);
+}
+
+// Comparison and Logical Precedence Tests
+
+test_comparison_precedence :: () unit {
+    #print("=== Comparison and Logical Tests ===");
+
+    // Test: 5 + 3 > 2 * 4 (should be false: 8 > 8)
+    let result1 bool = 5 + 3 > 2 * 4;
+    #print("Expected: false, Actual:", result1);
+
+    // Test: 5 + 3 >= 2 * 4 (should be true: 8 >= 8)
+    let result2 bool = 5 + 3 >= 2 * 4;
+    #print("Expected: true, Actual:", result2);
+
+    // Test: 10 > 5 == 3 < 7 (should be true: true == true)
+    let result3 bool = 10 > 5 == 3 < 7;
+    #print("Expected: true, Actual:", result3);
+
+    // Test: 2 + 3 == 5 and 4 * 2 == 8 (should be true)
+    let result4 bool = 2 + 3 == 5 and 4 * 2 == 8;
+    #print("Expected: true, Actual:", result4);
+
+    // Test: 1 == 2 or 3 == 3 (should be true)
+    let result5 bool = 1 == 2 or 3 == 3;
+    #print("Expected: true, Actual:", result5);
+}
+
+// Array Access and Complex Expressions
+
+test_array_expressions :: () unit {
+    #print("=== Array Expression Tests ===");
+
+    let numbers [int, 5] = [10, 20, 30, 40, 50];
+
+    // Test: numbers[1 + 1] (should be 30)
+    let result1 int = numbers[1 + 1];
+    #print("Expected: 30, Actual:", result1);
+
+    // Test: numbers[0] + numbers[4] (should be 60)
+    let result2 int = numbers[0] + numbers[4];
+    #print("Expected: 60, Actual:", result2);
+
+    // Test: numbers[2] * 2 - 10 (should be 50)
+    let result3 int = numbers[2] * 2 - 10;
+    #print("Expected: 50, Actual:", result3);
+
+    // Test: Array length in expression
+    let len int = #length(numbers);
+    let result4 int = len * 2;
+    #print("Expected: 10, Actual:", result4);
+}
+
+// Struct Field Access Tests
+
+Point2D :: struct {
+    x int,
+    y int
+}
+
+test_struct_expressions :: () unit {
+    #print("=== Struct Expression Tests ===");
+
+    let p1 Point2D = Point2D {
+        x = 10,
+        y = 20
+    };
+
+    let p2 Point2D = Point2D {
+        x = 5,
+        y = 15
+    };
+
+    // Test: p1.x + p2.x (should be 15)
+    let result1 int = p1.x + p2.x;
+    #print("Expected: 15, Actual:", result1);
+
+    // Test: p1.y * 2 - p2.y (should be 25)
+    let result2 int = p1.y * 2 - p2.y;
+    #print("Expected: 25, Actual:", result2);
+
+    // Test: p1.x == p2.x * 2 (should be true)
+    let result3 bool = p1.x == p2.x * 2;
+    #print("Expected: true, Actual:", result3);
+}
+
+// Function Call in Expressions
+
+add :: (x int, y int) int {
+    return x + y;
+}
+
+multiply :: (x int, y int) int {
+    return x * y;
+}
+
+test_function_expressions :: () unit {
+    #print("=== Function Expression Tests ===");
+
+    // Test: add(2, 3) * 4 (should be 20)
+    let result1 int = add(2, 3) * 4;
+    #print("Expected: 20, Actual:", result1);
+
+    // Test: multiply(add(2, 3), 4) (should be 20)
+    let result2 int = multiply(add(2, 3), 4);
+    #print("Expected: 20, Actual:", result2);
+
+    // Test: add(multiply(2, 3), multiply(4, 5)) (should be 26)
+    let result3 int = add(multiply(2, 3), multiply(4, 5));
+    #print("Expected: 26, Actual:", result3);
+}
+
+// Reference and Dereference Tests
+
+test_reference_expressions :: () unit {
+    #print("=== Reference Expression Tests ===");
+
+    let x int = 42;
+    let r &int = &x;
+
+    // Test: *r (should be 42)
+    let result1 int = *r;
+    #print("Expected: 42, Actual:", result1);
+
+    // Test: *r + 8 (should be 50)
+    let result2 int = *r + 8;
+    #print("Expected: 50, Actual:", result2);
+
+    // Test: *r * 2 (should be 84)
+    let result3 int = *r * 2;
+    #print("Expected: 84, Actual:", result3);
+
+    // Modify through reference
+    *r = 100;
+
+    // Test: x after modification (should be 100)
+    #print("Expected: 100, Actual:", x);
+}
+
+// Complex Nested Expressions
+
+test_complex_expressions :: () unit {
+    #print("=== Complex Expression Tests ===");
+
+    let numbers [int, 3] = [2, 4, 6];
+    let point Point2D = Point2D {
+        x = 3,
+        y = 5
+    };
+
+    // Test: numbers[0] + point.x * numbers[1] (should be 14: 2 + 3 * 4)
+    let result1 int = numbers[0] + point.x * numbers[1];
+    #print("Expected: 14, Actual:", result1);
+
+    // Test: (numbers[2] + point.y) * numbers[0] (should be 22: (6 + 5) * 2)
+    let result2 int = (numbers[2] + point.y) * numbers[0];
+    #print("Expected: 22, Actual:", result2);
+
+    // Test: add(numbers[0], point.x) > numbers[1] (should be true: 5 > 4)
+    let result3 bool = add(numbers[0], point.x) > numbers[1];
+    #print("Expected: true, Actual:", result3);
+}
+
+// Operator Associativity Tests
+
+test_associativity :: () unit {
+    #print("=== Associativity Tests ===");
+
+    // Test: 2 + 3 + 4 (should be 9, left-associative)
+    let result1 int = 2 + 3 + 4;
+    #print("Expected: 9, Actual:", result1);
+
+    // Test: 20 - 5 - 3 (should be 12, left-associative)
+    let result2 int = 20 - 5 - 3;
+    #print("Expected: 12, Actual:", result2);
+
+    // Test: 2 * 3 * 4 (should be 24, left-associative)
+    let result3 int = 2 * 3 * 4;
+    #print("Expected: 24, Actual:", result3);
+}
+
+// Edge Cases and Boundary Tests
+
+test_edge_cases :: () unit {
+    #print("=== Edge Case Tests ===");
+
+    // Test: 0 + 5 (should be 5)
+    let result1 int = 0 + 5;
+    #print("Expected: 5, Actual:", result1);
+
+    // Test: 10 * 0 (should be 0)
+    let result2 int = 10 * 0;
+    #print("Expected: 0, Actual:", result2);
+
+    // Test: 0 == 0 (should be true)
+    let result3 bool = 0 == 0;
+    #print("Expected: true, Actual:", result3);
+
+    // Test: Empty array length
+    let empty_array [int, 0] = [];
+    let len int = #length(empty_array);
+    #print("Expected: 0, Actual:", len);
+}
+
+// Main Function - Run All Tests
+
+main :: () unit {
+    #print("Starting Expression Tests...");
+    #print("");
+
+    test_basic_arithmetic();
+    #print("");
+
+    test_comparison_precedence();
+    #print("");
+
+    test_array_expressions();
+    #print("");
+
+    test_struct_expressions();
+    #print("");
+
+    test_function_expressions();
+    #print("");
+
+    test_reference_expressions();
+    #print("");
+
+    test_complex_expressions();
+    #print("");
+
+    test_associativity();
+    #print("");
+
+    test_edge_cases();
+    #print("");
+
+    #print("All tests completed!");
+}

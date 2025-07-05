@@ -12,11 +12,37 @@ use crate::tokeniser::*;
 use crate::typer::*;
 
 use ansi_term::Color;
+use clap::ArgAction;
+use clap::Parser;
 use env_logger::{Builder, Env};
 use log::Level;
 use std::io::Write;
 use std::process::exit;
 use std::time::SystemTime;
+
+#[derive(clap::Parser, Debug)]
+#[command(name = "interpreter")]
+struct Args {
+    /// Enable token parsing
+    #[arg(long, action = ArgAction::Set, default_value_t = false)]
+    tokens: bool,
+
+    /// Enable AST parsing
+    #[arg(long, action = ArgAction::Set, default_value_t = false)]
+    ast: bool,
+
+    /// Input file name
+    #[arg(value_name = "FILE")]
+    file_name: String,
+
+    /// Enable symbol parsing
+    #[arg(long, action = ArgAction::Set, default_value_t = false)]
+    symbols: bool,
+
+    /// Enable timing (default: true)
+    #[arg(long, action = ArgAction::Set, default_value_t = true)]
+    time: bool,
+}
 
 fn init_logger() {
     Builder::from_env(Env::default().default_filter_or("debug"))
@@ -54,57 +80,61 @@ fn init_logger() {
 fn main() {
     init_logger();
 
-    // Read file path from command line arguments
-    let args: Vec<String> = std::env::args().collect();
-    if args.len() < 2 {
-        eprintln!("Usage: {} <file_path>", args[0]);
-        std::process::exit(1);
-    }
-    let file_path = &args[1];
+    let args = Args::parse();
+
+    let file_path = args.file_name;
 
     let compile_start = SystemTime::now();
 
-    // println!("---------- Tokens ----------");
     let start = SystemTime::now();
     let mut tokeniser = Tokeniser::from_file(file_path.clone());
     tokeniser.tokenise();
     let end = SystemTime::now();
     let duration = end.duration_since(start).unwrap();
-    println!("Tokenised in {}s", duration.as_secs_f64());
+    if args.time {
+        println!("Tokenised in {}s", duration.as_secs_f64());
+    }
 
-    // for token in tokeniser.tokens.iter() {
-    //     println!("{:?}", token)
-    // }
-    // println!();
+    if args.tokens {
+        for token in tokeniser.tokens.iter() {
+            println!("{:?}", token)
+        }
+        println!();
+    }
 
-    // println!("---------- Parsing ----------");
-    let mut parser = Parser::new(tokeniser.file_path, tokeniser.tokens);
+    let mut parser = parser::Parser::new(tokeniser.file_path, tokeniser.tokens);
     let start = SystemTime::now();
     let mut tokeniser = Tokeniser::from_file(file_path.clone());
     parser.parse();
     let end = SystemTime::now();
     let duration = end.duration_since(start).unwrap();
-    println!("Parserd in {}s", duration.as_secs_f64());
 
-    // println!("{:#?}", parser.program);
-    // println!();
+    if args.time {
+        println!("Parserd in {}s", duration.as_secs_f64());
+    }
 
-    // println!("---------- Typechecking ----------");
+    if args.ast {
+        println!("{:#?}", parser.program);
+        println!();
+    }
+
     let mut typer = Typer::new(parser.program, file_path.clone());
 
-    let mut parser = Parser::new(tokeniser.file_path, tokeniser.tokens);
+    let mut parser = parser::Parser::new(tokeniser.file_path, tokeniser.tokens);
     let start = SystemTime::now();
     let mut tokeniser = Tokeniser::from_file(file_path.clone());
     typer.type_check();
     let end = SystemTime::now();
     let duration = end.duration_since(start).unwrap();
-    println!("Type checked in {}s", duration.as_secs_f64());
+    if args.time {
+        println!("Type checked in {}s", duration.as_secs_f64());
+    }
 
     for e in typer.errors.iter() {
         println!("{}", e);
     }
 
-    if typer.errors.len() != 0 {
+    if !typer.errors.is_empty() {
         println!(
             "Could not compile {} due to {} previous errors",
             typer.file_path,
@@ -118,19 +148,23 @@ fn main() {
         .duration_since(compile_start)
         .unwrap()
         .as_secs_f64();
-    println!("Compiled in {}s", duration);
 
-    println!("Structs");
-    for (name, fields) in typer.structs.iter() {
-        println!("    - {:?} {:?}", name, fields);
+    if args.time {
+        println!("Compiled in {}s", duration);
     }
 
-    println!("Procs");
-    for (name, (params, ret_ty)) in typer.procs.iter() {
-        println!("    - {:?} {:?} {:?}", name, params, ret_ty);
+    if args.symbols {
+        println!("Structs");
+        for (name, fields) in typer.structs.iter() {
+            println!("    - {:?} {:?}", name, fields);
+        }
+
+        println!("Procs");
+        for (name, (params, ret_ty)) in typer.procs.iter() {
+            println!("    - {:?} {:?} {:?}", name, params, ret_ty);
+        }
+        println!();
     }
-    println!();
-    // println!("---------- Evaluation ----------");
 
     let mut evaluator = Evaluator::new();
     let result = evaluator.eval_program(&typer.program);

@@ -2,6 +2,7 @@ use core::cell::Ref;
 use std::any::Any;
 use std::clone;
 use std::collections::{HashMap, HashSet};
+use std::fmt::format;
 use std::process::exit;
 
 use crate::parser::*;
@@ -144,17 +145,41 @@ impl Typer {
     fn get_struct_field_type(&self, name: String, field: String) -> Option<Type> {
         let fields = self.structs.get(&name);
         let field_ty = fields.and_then(|f| f.get(&field).cloned());
-        return field_ty;
+        field_ty
     }
 
-    fn get_type_from_expr(&mut self, expr: &Expr) -> Option<Type> {
+    fn type_infer(&mut self, expr: &Expr) -> Option<Type> {
         match expr {
+            Expr::Lit(Lit::Bool(val, lit_span)) => Some(Type::Bool),
+            Expr::Lit(Lit::Int(val, lit_span)) => Some(Type::Int),
+            Expr::Lit(Lit::Float(val, lit_span)) => Some(Type::Float),
+            Expr::Lit(Lit::Str(val, lit_span)) => Some(Type::Str),
+            Expr::Call { name, args, span } => {
+                let (params, ret_ty) = self
+                    .get_proc(name)
+                    .unwrap_or_else(|| panic!("Procedure {} not defined", name))
+                    .clone();
+
+                if params.len() != args.len() {
+                    self.add_error(format!(
+                        "{}:{}:{} Wrong number of arguments provided for procedure {}",
+                        self.file_path, span.start_line, span.start_column, name,
+                    ));
+                    return None;
+                }
+
+                // Iterate over params and check that args match
+                for (i, (arg, param)) in args.iter().zip(params).enumerate() {
+                    let (_, ty) = param;
+                    self.type_check_expr(arg, &ty);
+                }
+
+                Some(ret_ty)
+            }
             // TODO: only allow ref of allocated variables, no literals
-            Expr::Ref(expr) => self
-                .get_type_from_expr(expr)
-                .map(|t| Type::Ref(Box::new(t))),
+            Expr::Ref(expr) => self.type_infer(expr).map(|t| Type::Ref(Box::new(t))),
             Expr::Proj { expr, field, span } => {
-                let ty = self.get_type_from_expr(expr)?;
+                let ty = self.type_infer(expr)?;
                 match ty {
                     Type::Struct(name) => self.get_struct_field_type(name, field.clone()),
                     Type::Ref(inner_ty) => {
@@ -170,7 +195,7 @@ impl Typer {
                             expr.span().start_column,
                             inner_ty
                         ));
-                        return None;
+                        None
                     }
                     _ => {
                         self.add_error(format!(
@@ -180,12 +205,12 @@ impl Typer {
                             expr.span().start_column,
                             ty
                         ));
-                        return None;
+                        None
                     }
                 }
             }
             Expr::Index { expr, index, span } => {
-                let ty = self.get_type_from_expr(expr)?;
+                let ty = self.type_infer(expr)?;
                 match ty {
                     Type::Array(elem_ty, size) => Some(*elem_ty),
                     _ => {
@@ -196,7 +221,7 @@ impl Typer {
                             expr.span().start_column,
                             ty
                         ));
-                        return None;
+                        None
                     }
                 }
             }
@@ -211,10 +236,10 @@ impl Typer {
                     "{}:{}:{} Variable {:?} not defined",
                     self.file_path, span.start_line, span.start_column, name
                 ));
-                return None;
+                None
             }
             Expr::Deref(expr) => {
-                let inner_ty = self.get_type_from_expr(expr);
+                let inner_ty = self.type_infer(expr);
                 match inner_ty {
                     Some(Type::Ref(t)) => Some(*t),
                     _ => {
@@ -227,15 +252,47 @@ impl Typer {
                     }
                 }
             }
+            Expr::Binary { lhs, op, rhs, span } => {
+                if op.is_logical() {
+                    self.type_check_expr(lhs, &Type::Bool);
+                    self.type_check_expr(rhs, &Type::Bool);
+                    return Some(Type::Bool);
+                }
+
+                let lhs_ty = self.type_infer(lhs)?;
+
+                if op.is_arithmetic() {
+                    return if lhs_ty == Type::Int {
+                        self.type_check_expr(rhs, &Type::Int);
+                        Some(Type::Int)
+                    } else if lhs_ty == Type::Float {
+                        self.type_check_expr(rhs, &Type::Float);
+                        Some(Type::Float)
+                    } else {
+                        self.add_error(format!(
+                            "{}:{}:{} Arithmetic operation applied to non-number type",
+                            self.file_path, span.start_line, span.start_column
+                        ));
+                        None
+                    };
+                }
+
+                if op.is_comparison() {
+                    self.type_check_expr(rhs, &lhs_ty);
+                    return Some(Type::Bool);
+                }
+
+                None
+            }
             _ => {
                 self.add_error(format!(
-                    "{}:{}:{} Cannot get type from expression {:?}",
+                    "{}:{}:{} Could not infer type from expression {}",
                     self.file_path,
                     expr.span().start_line,
                     expr.span().start_column,
                     expr
                 ));
-                return None;
+                None
             }
         }
     }
@@ -278,7 +335,7 @@ impl Typer {
                     self.add_type(name, ty.clone());
                 }
                 Stmt::Assign { lhs, rhs, span } => {
-                    let lhs_ty = self.get_type_from_expr(lhs);
+                    let lhs_ty = self.type_infer(lhs);
                     if lhs_ty.is_none() {
                         return false;
                     }
@@ -380,44 +437,13 @@ impl Typer {
 
     fn type_check_expr(&mut self, expr: &Expr, target: &Type) {
         match (expr, target) {
-            (Expr::Unit(span), Type::Unit) => {}
-            (Expr::Lit(Lit::Bool(val, lit_span)), Type::Bool) => {}
-            (Expr::Lit(Lit::Int(val, lit_span)), Type::Int) => {}
-            (Expr::Lit(Lit::Float(val, lit_span)), Type::Float) => {}
-            (Expr::Lit(Lit::Str(val, lit_span)), Type::Str) => {}
-            (Expr::Bin { lhs, op, rhs, span }, ty) => {
-                if op.is_arithmetic()  {
-                    if ty == &Type::Int {
-                        self.type_check_expr(lhs, &Type::Int);
-                        self.type_check_expr(rhs, &Type::Int);
-                    }
-                    if ty == &Type::Float {
-                        self.type_check_expr(lhs, &Type::Float);
-                        self.type_check_expr(rhs, &Type::Float);
-                    }
-                    return;
-                }
-
-                if op.is_comparison() && ty == &Type::Bool {
-                    self.type_check_expr(lhs, &Type::Int);
-                    self.type_check_expr(rhs, &Type::Int);
-                    return;
-                }
-
-                if op.is_logical() && ty == &Type::Bool {
-                    self.type_check_expr(lhs, &Type::Bool);
-                    self.type_check_expr(rhs, &Type::Bool);
-                    return;
-                }
-
-                self.add_error(format!(
-                    "{}:{}:{} Type mismatch",
-                    self.file_path, span.start_line, span.start_column
-                ));
-                return;
-            }
             (Expr::Var { name, span }, Type::Array(elem_ty, size)) => {
-                match self.get_type_from_expr(expr).unwrap() {
+                let actual_ty = self.type_infer(expr);
+                if actual_ty.is_none() {
+                    return;
+                }
+
+                match actual_ty.unwrap() {
                     Type::Array(ty, s) => {
                         match (size, s) {
                             (ArrayLength::Dynamic, ArrayLength::Dynamic) => {
@@ -432,7 +458,6 @@ impl Typer {
                                         "{}:{}:{} Expected array of length {:?}, got length {:?}",
                                         self.file_path, span.start_line, span.start_column, s1, s2
                                     ));
-                                    return;
                                 }
                             }
                             _ => {
@@ -440,7 +465,6 @@ impl Typer {
                                     "{}:{}:{} Expected dynamic array, got {:?}",
                                     self.file_path, span.start_line, span.start_column, size
                                 ));
-                                return;
                             }
                         }
                     }
@@ -449,12 +473,11 @@ impl Typer {
                             "{}:{}:{} Expected array, got {:?}",
                             self.file_path, span.start_line, span.start_column, name
                         ));
-                        return;
                     }
                 }
             }
             (Expr::Var { name, span }, ty) => {
-                let t = self.get_type_from_expr(expr).unwrap();
+                let t = self.type_infer(expr).unwrap();
                 if t.clone() != *ty {
                     self.add_error(format!(
                         "{}:{}:{} Type mismatch, expected {:?} got {:?}",
@@ -464,7 +487,6 @@ impl Typer {
                         ty.clone(),
                         t
                     ));
-                    return;
                 }
             }
             (Expr::Lit(Lit::Struct(lit, lit_span)), Type::Struct(name)) => {
@@ -485,6 +507,8 @@ impl Typer {
                     return;
                 }
 
+                let actual_ty = self.type_infer(expr);
+
                 let (params, ret_ty) = self
                     .get_proc(name)
                     .unwrap_or_else(|| panic!("Procedure {} not defined", name))
@@ -504,11 +528,10 @@ impl Typer {
                         "{}:{}:{} Expected {:?}, got {:?}",
                         self.file_path, span.start_line, span.start_column, ty, ret_ty
                     ));
-                    return;
                 }
             }
             (Expr::Proj { expr, field, span }, ty) => {
-                let rec_ty = self.get_type_from_expr(expr);
+                let rec_ty = self.type_infer(expr);
             }
             (Expr::Lit(Lit::Array(lit, span)), Type::Array(ty, size)) => {
                 match size {
@@ -533,7 +556,7 @@ impl Typer {
                 }
             }
             (Expr::Index { expr, index, span }, ty) => {
-                let var_ty = self.get_type_from_expr(expr).unwrap();
+                let var_ty = self.type_infer(expr).unwrap();
                 match var_ty {
                     Type::Array(elem_ty, _) => {
                         if elem_ty.as_ref() != ty {
@@ -563,15 +586,17 @@ impl Typer {
                 self.type_check_expr(expr, &Type::Ref(ty.clone()))
             }
             _ => {
-                self.add_error(format!(
-                    "{}:{}:{} Expected {:?}, got expression {:?}",
-                    self.file_path,
-                    expr.span().start_line,
-                    expr.span().start_column,
-                    target,
-                    expr
-                ));
-                return;
+                let actual_ty = self.type_infer(expr);
+                if actual_ty.is_none() || actual_ty.unwrap() != *target {
+                    self.add_error(format!(
+                        "{}:{}:{} Expected {:?}, got expression {}",
+                        self.file_path,
+                        expr.span().start_line,
+                        expr.span().start_column,
+                        target,
+                        expr
+                    ));
+                }
             }
         };
     }
@@ -633,7 +658,8 @@ impl Expr {
             Expr::Ref(expr) => expr.span(),
             Expr::Deref(expr) => expr.span(),
             Expr::Var { name, span } => span,
-            Expr::Bin { lhs, op, rhs, span } => span,
+            Expr::Binary { lhs, op, rhs, span } => span,
+            Expr::Unary { op, rhs, span } => span,
             Expr::Call { name, args, span } => span,
             Expr::Proj { expr, field, span } => span,
             Expr::Index { expr, index, span } => span,

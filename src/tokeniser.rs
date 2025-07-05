@@ -40,10 +40,10 @@ pub enum TokenType {
     Colon,
     Dot,
     Comma,
-    Greater,
-    Less,
-    GreaterEqual,
-    LessEqual,
+    Gt,
+    Lt,
+    Geq,
+    Leq,
     EqualEqual,
     NotEqual,
     Semicolon,
@@ -71,7 +71,7 @@ impl PartialEq for TokenType {
             (TokenType::IntegerLiteral(i1), TokenType::IntegerLiteral(i2)) => i1 == i2,
             (TokenType::StringLiteral(s1), TokenType::StringLiteral(s2)) => s1 == s2,
             (TokenType::FloatLiteral(f1), TokenType::FloatLiteral(f2)) => f1 == f2,
-            
+
             // Handle all unit variants (variants without data)
             (TokenType::Struct, TokenType::Struct) => true,
             (TokenType::Let, TokenType::Let) => true,
@@ -102,10 +102,10 @@ impl PartialEq for TokenType {
             (TokenType::Colon, TokenType::Colon) => true,
             (TokenType::Dot, TokenType::Dot) => true,
             (TokenType::Comma, TokenType::Comma) => true,
-            (TokenType::Greater, TokenType::Greater) => true,
-            (TokenType::Less, TokenType::Less) => true,
-            (TokenType::GreaterEqual, TokenType::GreaterEqual) => true,
-            (TokenType::LessEqual, TokenType::LessEqual) => true,
+            (TokenType::Gt, TokenType::Gt) => true,
+            (TokenType::Lt, TokenType::Lt) => true,
+            (TokenType::Geq, TokenType::Geq) => true,
+            (TokenType::Leq, TokenType::Leq) => true,
             (TokenType::EqualEqual, TokenType::EqualEqual) => true,
             (TokenType::NotEqual, TokenType::NotEqual) => true,
             (TokenType::Semicolon, TokenType::Semicolon) => true,
@@ -117,7 +117,7 @@ impl PartialEq for TokenType {
             (TokenType::LeftBrace, TokenType::LeftBrace) => true,
             (TokenType::RightBrace, TokenType::RightBrace) => true,
             (TokenType::EOF, TokenType::EOF) => true,
-            
+
             // All other combinations are not equal
             _ => false,
         }
@@ -158,10 +158,10 @@ impl Display for TokenType {
             TokenType::Colon => ":",
             TokenType::Dot => ".",
             TokenType::Comma => ",",
-            TokenType::Greater => ">",
-            TokenType::Less => "<",
-            TokenType::GreaterEqual => ">=",
-            TokenType::LessEqual => "<=",
+            TokenType::Gt => ">",
+            TokenType::Lt => "<",
+            TokenType::Geq => ">=",
+            TokenType::Leq => "<=",
             TokenType::EqualEqual => "==",
             TokenType::NotEqual => "!=",
             TokenType::Semicolon => ";",
@@ -197,6 +197,15 @@ impl Span {
             start_column,
             end_line,
             end_column,
+        }
+    }
+
+    pub fn empty() -> Span {
+        Span {
+            start_line: 0,
+            start_column: 0,
+            end_line: 0,
+            end_column: 0,
         }
     }
 
@@ -340,7 +349,6 @@ impl Tokeniser {
             ']' => self.add_token(TokenType::RightBracket),
             '#' => self.add_token(TokenType::Hash),
             '?' => self.add_token(TokenType::QuestionMark),
-
             '/' => {
                 match self.peek() {
                     '/' => {
@@ -407,17 +415,17 @@ impl Tokeniser {
             '>' => {
                 if self.peek() == '=' {
                     self.advance();
-                    self.add_token(TokenType::GreaterEqual);
+                    self.add_token(TokenType::Geq);
                 } else {
-                    self.add_token(TokenType::Greater);
+                    self.add_token(TokenType::Gt);
                 }
             }
             '<' => {
                 if self.peek() == '=' {
                     self.advance();
-                    self.add_token(TokenType::LessEqual);
+                    self.add_token(TokenType::Leq);
                 } else {
-                    self.add_token(TokenType::Less);
+                    self.add_token(TokenType::Lt);
                 }
             }
             '.' => {
@@ -481,8 +489,6 @@ impl Tokeniser {
                         }
                         self.add_token(TokenType::IntegerLiteral(n.unwrap()))
                     }
-
-                    
                 } else if c.is_alphabetic() {
                     let mut identifier = c.to_string();
                     while self.peek().is_alphanumeric() || self.peek() == '_' {
