@@ -7,6 +7,8 @@ pub mod token;
 pub mod tokeniser;
 pub mod typer;
 
+use crate::ast::ParseError;
+use crate::ast::TypeErrorKind;
 use crate::eval::Evaluator;
 use crate::evaluator::*;
 use crate::parser::*;
@@ -17,6 +19,7 @@ use ansi_term::Color;
 use clap::ArgAction;
 use clap::Parser;
 use env_logger::{Builder, Env};
+use log::error;
 use log::Level;
 use std::io::Write;
 use std::process::exit;
@@ -83,14 +86,39 @@ fn main() {
     init_logger();
 
     let args = Args::parse();
-
     let file_path = args.file_name;
 
     let compile_start = SystemTime::now();
-
     let start = SystemTime::now();
     let mut tokeniser = Tokeniser::from_file(file_path.clone());
-    tokeniser.tokenise();
+    let tokenise_result = tokeniser.tokenise();
+    if let Err(err) = tokenise_result {
+        match err.kind {
+            token::LexicalErrorKind::UnexpectedCharacter(c) => error!(
+                "{}:{}:{}: Unexpected character {c}",
+                file_path, err.span.start_line, err.span.start_column
+            ),
+            token::LexicalErrorKind::UnterminatedString => error!(
+                "{}:{}:{}: Unterminated string",
+                file_path, err.span.start_line, err.span.start_column
+            ),
+            token::LexicalErrorKind::UnterminatedMultilineComment => error!(
+                "{}:{}:{}: Unterminated multi-line comment",
+                file_path, err.span.start_line, err.span.start_column
+            ),
+            token::LexicalErrorKind::InvalidFloat => error!(
+                "{}:{}:{}: Invalid float literal",
+                file_path, err.span.start_line, err.span.start_column
+            ),
+            token::LexicalErrorKind::InvalidInt => error!(
+                "{}:{}:{}: Invalid int literal",
+                file_path, err.span.start_line, err.span.start_column
+            ),
+        }
+
+        exit(1);
+    }
+
     let end = SystemTime::now();
     let duration = end.duration_since(start).unwrap();
     if args.time {
@@ -107,7 +135,37 @@ fn main() {
     let mut parser = parser::Parser::new(tokeniser.file_path, tokeniser.tokens);
     let start = SystemTime::now();
     let mut tokeniser = Tokeniser::from_file(file_path.clone());
-    parser.parse();
+    let parse_result = parser.parse();
+
+    if parse_result.is_err() {
+        let err = parse_result.unwrap_err();
+        match err.kind {
+            ast::ParseErrorKind::UnexpectedToken { expected, actual } => {
+                error!(
+                    "{}:{}:{}: Expected {}, got {}",
+                    file_path, err.span.start_line, err.span.start_column, expected, actual
+                )
+            }
+            ast::ParseErrorKind::NegativeArrayLength => error!(
+                "{}:{}:{}: Array length must be non-negative",
+                file_path, err.span.start_line, err.span.start_column
+            ),
+            ast::ParseErrorKind::NonIntLitArrayLength => error!(
+                "{}:{}:{}: Array length must be an integer",
+                file_path, err.span.start_line, err.span.start_column
+            ),
+            ast::ParseErrorKind::InvalidLeftHandSide => error!(
+                "{}:{}:{}: Invalid left-hand side of assignment",
+                file_path, err.span.start_line, err.span.start_column
+            ),
+            ast::ParseErrorKind::InvalidReferenceTarget => error!(
+                "{}:{}:{}: Invalid reference target",
+                file_path, err.span.start_line, err.span.start_column
+            ),
+        }
+        exit(1);
+    }
+
     let end = SystemTime::now();
     let duration = end.duration_since(start).unwrap();
 
@@ -133,7 +191,94 @@ fn main() {
     }
 
     for e in typer.errors.iter() {
-        println!("{}", e);
+        match &e.kind {
+            TypeErrorKind::UnexpectedReturnType { expected, actual } => {
+                error!(
+                    "{}:{}:{}: Expected return type {}, got {}",
+                    file_path, e.span.start_line, e.span.start_column, expected, actual
+                )
+            }
+            TypeErrorKind::UnexpectedType { expected, actual } => error!(
+                "{}:{}:{}: Expected type {}, got {}",
+                file_path, e.span.start_line, e.span.start_column, expected, actual
+            ),
+            TypeErrorKind::UnexpectedArrayLength { expected, actual } => error!(
+                "{}:{}:{}: Expected array of length {}, got {}",
+                file_path, e.span.start_line, e.span.start_column, expected, actual
+            ),
+            TypeErrorKind::UnexpectedArrayType { expected, actual } => error!(
+                "{}:{}:{}: Expected return type {}, got {}",
+                file_path, e.span.start_line, e.span.start_column, expected, actual
+            ),
+            TypeErrorKind::ProcAlreadyDefined => error!(
+                "{}:{}:{}: Procedure already defined",
+                file_path, e.span.start_line, e.span.start_column
+            ),
+            TypeErrorKind::StructAlreadyDefined => error!(
+                "{}:{}:{}: Struct already defined",
+                file_path, e.span.start_line, e.span.start_column
+            ),
+            TypeErrorKind::VarAlreadyDefined => error!(
+                "{}:{}:{}: Variable already defined",
+                file_path, e.span.start_line, e.span.start_column
+            ),
+            TypeErrorKind::ProcNotDefined => error!(
+                "{}:{}:{}: Procedure not defined",
+                file_path, e.span.start_line, e.span.start_column
+            ),
+            TypeErrorKind::VarNotDefined => error!(
+                "{}:{}:{}: Variable not defined",
+                file_path, e.span.start_line, e.span.start_column
+            ),
+            TypeErrorKind::StructNotDefined => error!(
+                "{}:{}:{}: Struct already defined",
+                file_path, e.span.start_line, e.span.start_column
+            ),
+            TypeErrorKind::ProjectingNonStruct => error!(
+                "{}:{}:{}: Projecting into non-struct expression",
+                file_path, e.span.start_line, e.span.start_column
+            ),
+            TypeErrorKind::ProjectingNonStructRef => error!(
+                "{}:{}:{}: Projecting into non-struct reference expression",
+                file_path, e.span.start_line, e.span.start_column
+            ),
+            TypeErrorKind::DerefNonPointer => error!(
+                "{}:{}:{}: Dereferencing non-reference type",
+                file_path, e.span.start_line, e.span.start_column
+            ),
+            TypeErrorKind::IndexingNonArray => error!(
+                "{}:{}:{}: Indexing into non-index type",
+                file_path, e.span.start_line, e.span.start_column
+            ),
+            TypeErrorKind::ArithWithNonNumber { ty } => error!(
+                "{}:{}:{}: Arithmaeic operation on non-number type {}",
+                file_path, e.span.start_line, e.span.start_column, ty
+            ),
+            TypeErrorKind::ScopeNotDefined => error!(
+                "{}:{}:{}: Scope not defined",
+                file_path, e.span.start_line, e.span.start_column
+            ),
+            TypeErrorKind::StructFielNotFound { field, struct_name } => error!(
+                "{}:{}:{}: Field {} not found in struct {}",
+                file_path, e.span.start_line, e.span.start_column, field, struct_name
+            ),
+            TypeErrorKind::WrongArgCount {
+                expected,
+                actual,
+                name,
+            } => error!(
+                "{}:{}:{}: {actual} arguments provided where {expected} required",
+                file_path, e.span.start_line, e.span.start_column,
+            ),
+            TypeErrorKind::NotAbleToInferType => error!(
+                "{}:{}:{}: Not able to infer type of expression",
+                file_path, e.span.start_line, e.span.start_column,
+            ),
+            TypeErrorKind::UnreachableCodeAfterReturn => error!(
+                "{}:{}:{}: Unreachable code after returning from procedure",
+                file_path, e.span.start_line, e.span.start_column,
+            ),
+        }
     }
 
     let compile_end = SystemTime::now();

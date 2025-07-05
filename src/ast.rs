@@ -1,5 +1,9 @@
 use core::{error, panic};
-use std::{collections::HashMap, fmt::Display, process::exit};
+use std::{
+    collections::HashMap,
+    fmt::{write, Display},
+    process::exit,
+};
 
 use crate::token::*;
 use log::{debug, error};
@@ -208,6 +212,23 @@ pub enum Type {
     Ref(Box<Type>),
 }
 
+impl Display for Type {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let string = match self {
+            Type::Unit => "unit".to_string(),
+            Type::Int => "int".to_string(),
+            Type::Float => "float".to_string(),
+            Type::Str => "string".to_string(),
+            Type::Bool => "bool".to_string(),
+            Type::Struct(s) => s.to_string(),
+            Type::Array(ty, ArrayLength::Dynamic) => format!("[{ty}]"),
+            Type::Array(ty, ArrayLength::Fixed(size)) => format!("[{ty}, {size}]",),
+            Type::Ref(ty) => format!("&{ty}"),
+        };
+        write!(f, "{string}")
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum ArrayLength {
     Fixed(usize),
@@ -279,6 +300,51 @@ impl Expr {
     pub fn is_rvalue(&self) -> bool {
         !self.is_lvalue()
     }
+
+    pub fn span(&self) -> &Span {
+        match self {
+            Expr::Unit(span) => span,
+            Expr::Ref(expr) => expr.span(),
+            Expr::Deref(expr) => expr.span(),
+            Expr::Var { name, span } => span,
+            Expr::Binary { span, .. } => span,
+            Expr::Unary { span, .. } => span,
+            Expr::Call { span, .. } => span,
+            Expr::Proj { span, .. } => span,
+            Expr::Index { span, .. } => span,
+            Expr::Lit(lit) => lit.span(),
+            Expr::MakeArray { span, .. } => span,
+        }
+    }
+}
+
+// Add helper methods to get spans from AST nodes
+impl Stmt {
+    pub fn span(&self) -> &Span {
+        match self {
+            Stmt::VarDecl { span, .. } => span,
+            Stmt::Assign { span, .. } => span,
+            Stmt::If { span, .. } => span,
+            Stmt::IfElse { span, .. } => span,
+            Stmt::While { span, .. } => span,
+            Stmt::For { span, .. } => span,
+            Stmt::Call { span, .. } => span,
+            Stmt::Ret { span, .. } => span,
+        }
+    }
+}
+
+impl Lit {
+    pub fn span(&self) -> &Span {
+        match self {
+            Lit::Int(_, span) => span,
+            Lit::Float(_, span) => span,
+            Lit::Str(_, span) => span,
+            Lit::Bool(_, span) => span,
+            Lit::Struct(hash_map, span) => span,
+            Lit::Array(exprs, span) => span,
+        }
+    }
 }
 
 impl BinaryOp {
@@ -303,5 +369,113 @@ impl BinaryOp {
                 | BinaryOp::Gt
                 | BinaryOp::Geq
         )
+    }
+}
+
+#[derive(Debug)]
+pub enum ParseErrorKind {
+    UnexpectedToken {
+        expected: TokenSet,
+        actual: TokenType,
+    },
+    NegativeArrayLength,
+    NonIntLitArrayLength,
+    InvalidLeftHandSide,
+    InvalidReferenceTarget,
+}
+
+#[derive(Debug)]
+pub struct ParseError {
+    pub kind: ParseErrorKind,
+    pub span: Span,
+}
+
+#[derive(Debug)]
+pub enum TokenSet {
+    One(TokenType),
+    Many(Vec<TokenType>),
+    Text(String),
+}
+
+impl Display for TokenSet {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TokenSet::One(token_type) => write!(f, "{}", token_type),
+            TokenSet::Many(token_types) => todo!(),
+            TokenSet::Text(text) => write!(f, "{text}"),
+        }
+    }
+}
+
+pub struct TypeError {
+    pub kind: TypeErrorKind,
+    pub span: Span,
+}
+
+pub enum TypeErrorKind {
+    // Unexpected
+    UnexpectedReturnType {
+        expected: TypeSet,
+        actual: Type,
+    },
+    UnexpectedType {
+        expected: Type,
+        actual: Type,
+    },
+    UnexpectedArrayLength {
+        expected: usize,
+        actual: usize,
+    },
+
+    UnexpectedArrayType {
+        expected: Type,
+        actual: Type,
+    },
+
+    // Definition
+    ProcAlreadyDefined,
+    StructAlreadyDefined,
+    VarAlreadyDefined,
+    ProcNotDefined,
+    VarNotDefined,
+    StructNotDefined,
+
+    // Unary operation
+    ProjectingNonStruct,
+    ProjectingNonStructRef,
+    DerefNonPointer,
+    IndexingNonArray,
+
+    // Binary operations
+    ArithWithNonNumber {
+        ty: Type,
+    },
+
+    // Other
+    ScopeNotDefined,
+    StructFielNotFound {
+        field: String,
+        struct_name: String,
+    },
+    WrongArgCount {
+        name: String,
+        expected: usize,
+        actual: usize,
+    },
+    NotAbleToInferType,
+    UnreachableCodeAfterReturn,
+}
+
+pub enum TypeSet {
+    One(Type),
+    Text(String),
+}
+
+impl Display for TypeSet {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TypeSet::One(inner) => write!(f, "{:?}", inner),
+            TypeSet::Text(t) => write!(f, "{:?}", t),
+        }
     }
 }

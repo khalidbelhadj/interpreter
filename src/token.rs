@@ -227,3 +227,18 @@ impl Token {
         Token { token_type, span }
     }
 }
+
+#[derive(Debug, Clone)]
+pub enum LexicalErrorKind {
+    UnexpectedCharacter(char),
+    UnterminatedString,
+    UnterminatedMultilineComment,
+    InvalidFloat,
+    InvalidInt,
+}
+
+#[derive(Debug, Clone)]
+pub struct LexicalError {
+    pub span: Span,
+    pub kind: LexicalErrorKind,
+}

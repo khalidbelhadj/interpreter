@@ -3,6 +3,7 @@ use log::error;
 use std::{
     fmt::{write, Display},
     process::exit,
+    task::Context,
 };
 
 use crate::token::*;
@@ -97,8 +98,7 @@ impl Tokeniser {
         self.tokens.push(Token::new(token_type, self.span()))
     }
 
-    fn scan_token(&mut self) {
-        // Save the starting position before processing the token
+    fn scan_token(&mut self) -> Result<(), LexicalError> {
         self.start_line = self.curr_line;
         self.start_col = self.curr_col;
 
@@ -108,24 +108,73 @@ impl Tokeniser {
             '\n' => {
                 self.curr_line += 1;
                 self.curr_col = 1;
+                Ok(())
             }
-            ' ' | '\r' | '\t' => {}
-            '.' => self.add_token(TokenType::Dot),
-            '+' => self.add_token(TokenType::Plus),
-            '-' => self.add_token(TokenType::Minus),
-            '&' => self.add_token(TokenType::Ampersand),
-            '*' => self.add_token(TokenType::Star),
-            ':' => self.add_token(TokenType::Colon),
-            ';' => self.add_token(TokenType::Semicolon),
-            ',' => self.add_token(TokenType::Comma),
-            '(' => self.add_token(TokenType::LeftParen),
-            ')' => self.add_token(TokenType::RightParen),
-            '{' => self.add_token(TokenType::LeftBrace),
-            '}' => self.add_token(TokenType::RightBrace),
-            '[' => self.add_token(TokenType::LeftBracket),
-            ']' => self.add_token(TokenType::RightBracket),
-            '#' => self.add_token(TokenType::Hash),
-            '?' => self.add_token(TokenType::QuestionMark),
+            ' ' | '\r' | '\t' => Ok(()),
+            '.' => {
+                self.add_token(TokenType::Dot);
+                Ok(())
+            }
+            '+' => {
+                self.add_token(TokenType::Plus);
+                Ok(())
+            }
+            '-' => {
+                self.add_token(TokenType::Minus);
+                Ok(())
+            }
+            '&' => {
+                self.add_token(TokenType::Ampersand);
+                Ok(())
+            }
+            '*' => {
+                self.add_token(TokenType::Star);
+                Ok(())
+            }
+            ':' => {
+                self.add_token(TokenType::Colon);
+                Ok(())
+            }
+            ';' => {
+                self.add_token(TokenType::Semicolon);
+                Ok(())
+            }
+            ',' => {
+                self.add_token(TokenType::Comma);
+                Ok(())
+            }
+            '(' => {
+                self.add_token(TokenType::LeftParen);
+                Ok(())
+            }
+            ')' => {
+                self.add_token(TokenType::RightParen);
+                Ok(())
+            }
+            '{' => {
+                self.add_token(TokenType::LeftBrace);
+                Ok(())
+            }
+            '}' => {
+                self.add_token(TokenType::RightBrace);
+                Ok(())
+            }
+            '[' => {
+                self.add_token(TokenType::LeftBracket);
+                Ok(())
+            }
+            ']' => {
+                self.add_token(TokenType::RightBracket);
+                Ok(())
+            }
+            '#' => {
+                self.add_token(TokenType::Hash);
+                Ok(())
+            }
+            '?' => {
+                self.add_token(TokenType::QuestionMark);
+                Ok(())
+            }
             '/' => {
                 match self.peek() {
                     '/' => {
@@ -133,6 +182,8 @@ impl Tokeniser {
                         while self.peek() != '\n' && !self.is_at_end() {
                             self.advance();
                         }
+
+                        Ok(())
                     }
                     '*' => {
                         // Multi-line comment
@@ -163,26 +214,35 @@ impl Tokeniser {
                         }
 
                         if self.is_at_end() && nesting > 0 {
-                            error!(
-                                "{}:{}:{}: Unterminated multi-line comment",
-                                self.file_path, self.start_line, self.start_col
-                            );
-                            exit(1);
+                            return Err(LexicalError {
+                                span: self.span(),
+                                kind: LexicalErrorKind::UnterminatedMultilineComment,
+                            });
                         }
+
+                        Ok(())
                     }
-                    _ => self.add_token(TokenType::Slash),
+                    _ => {
+                        self.add_token(TokenType::Slash);
+                        Ok(())
+                    }
                 }
             }
             '!' => {
                 if self.peek() == '=' {
                     self.advance();
                     self.add_token(TokenType::NotEqual);
+                    Ok(())
                 } else {
-                    error!(
-                        "{}:{}:{}: Use `not` for negation",
-                        self.file_path, self.start_line, self.start_col
-                    );
-                    exit(1);
+                    Err(LexicalError {
+                        span: self.span(),
+                        kind: LexicalErrorKind::UnexpectedCharacter(self.peek()),
+                    })
+                    // error!(
+                    //     "{}:{}:{}: Use `not` for negation",
+                    //     self.file_path, self.start_line, self.start_col
+                    // );
+                    // exit(1);
                 }
             }
             '=' => {
@@ -192,6 +252,7 @@ impl Tokeniser {
                 } else {
                     self.add_token(TokenType::Equal);
                 }
+                Ok(())
             }
             '>' => {
                 if self.peek() == '=' {
@@ -200,6 +261,7 @@ impl Tokeniser {
                 } else {
                     self.add_token(TokenType::Gt);
                 }
+                Ok(())
             }
             '<' => {
                 if self.peek() == '=' {
@@ -208,6 +270,7 @@ impl Tokeniser {
                 } else {
                     self.add_token(TokenType::Lt);
                 }
+                Ok(())
             }
             '"' => {
                 let mut string = String::new();
@@ -216,15 +279,15 @@ impl Tokeniser {
                 }
 
                 if self.is_at_end() {
-                    error!(
-                        "{}:{}:{}: Unterminated string",
-                        self.file_path, self.start_line, self.start_col
-                    );
-                    exit(1);
+                    return Err(LexicalError {
+                        span: self.span(),
+                        kind: LexicalErrorKind::UnterminatedString,
+                    });
                 }
 
                 self.advance();
                 self.add_token(TokenType::StringLiteral(string));
+                Ok(())
             }
             _ => {
                 if c.is_ascii_digit() || c == '.' {
@@ -245,23 +308,23 @@ impl Tokeniser {
                     if has_dot {
                         let f: Option<f64> = number.parse().ok();
                         if f.is_none() {
-                            error!(
-                                "{}:{}:{}: Could not parse float {number}",
-                                self.file_path, self.start_line, self.start_col
-                            );
-                            exit(1);
+                            return Err(LexicalError {
+                                span: self.span(),
+                                kind: LexicalErrorKind::InvalidFloat,
+                            });
                         }
-                        self.add_token(TokenType::FloatLiteral(f.unwrap()))
+                        self.add_token(TokenType::FloatLiteral(f.unwrap()));
+                        Ok(())
                     } else {
                         let n: Option<i64> = number.parse().ok();
                         if n.is_none() {
-                            error!(
-                                "{}:{}:{}: Could not parse int {number}",
-                                self.file_path, self.start_line, self.start_col
-                            );
-                            exit(1);
+                            return Err(LexicalError {
+                                span: self.span(),
+                                kind: LexicalErrorKind::InvalidInt,
+                            });
                         }
-                        self.add_token(TokenType::IntegerLiteral(n.unwrap()))
+                        self.add_token(TokenType::IntegerLiteral(n.unwrap()));
+                        Ok(())
                     }
                 } else if c.is_alphabetic() {
                     let mut identifier = c.to_string();
@@ -289,29 +352,24 @@ impl Tokeniser {
                         "for" => self.add_token(TokenType::For),
                         "in" => self.add_token(TokenType::In),
                         _ => self.add_token(TokenType::Ident(identifier)),
-                    }
+                    };
+                    Ok(())
                 } else {
-                    error!(
-                        "{}:{}:{}: Unexpected character: '{}'",
-                        self.file_path, self.curr_line, self.curr_col, c
-                    );
-                    exit(1);
+                    Err(LexicalError {
+                        span: self.span(),
+                        kind: LexicalErrorKind::UnexpectedCharacter(c),
+                    })
                 }
             }
         }
     }
 
-    pub fn tokenise(&mut self) {
+    pub fn tokenise(&mut self) -> Result<(), LexicalError> {
         while !self.is_at_end() {
             self.start = self.curr;
-            self.scan_token();
+            self.scan_token()?;
         }
 
-        // TODO: Idk why I need an eof token
-        // // For EOF token, we want the final position
-        // self.tokens.push(Token::new(
-        //     TokenType::EOF,
-        //     Span::new(self.curr_line, self.curr_col, self.curr_line, self.curr_col),
-        // ));
+        Ok(())
     }
 }

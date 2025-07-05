@@ -23,179 +23,47 @@ impl Parser {
         }
     }
 
-    fn peek(&self) -> Token {
-        self.tokens
-            .get(self.current)
-            .cloned()
-            .unwrap_or(Token::new(TokenType::EOF, Span::empty()))
-    }
-
-    fn peek_type(&self) -> TokenType {
-        self.peek().token_type
-    }
-
-    fn advance(&mut self) -> Token {
-        self.current += 1;
-        self.peek()
-    }
-
-    fn consume(&mut self, expected: TokenType) {
-        if self.peek_type() == expected {
-            self.current += 1;
-        } else {
-            let tok = self.peek();
-            error!(
-                "{}:{}:{} Expected token {}, got {}",
-                self.file_path,
-                tok.span.start_line,
-                tok.span.start_column,
-                expected,
-                tok.token_type
-            );
-            panic!();
-        }
-    }
-
-    fn consume_identifier(&mut self) -> String {
-        let tok = self.peek();
-        if let TokenType::Ident(name) = tok.token_type {
-            self.current += 1;
-            return name.clone();
-        }
-
-        error!(
-            "{}:{}:{} Expected identifier, got {}",
-            self.file_path, tok.span.start_line, tok.span.start_column, tok.token_type
-        );
-        exit(1);
-    }
-
-    pub fn parse(&mut self) {
+    pub fn parse(&mut self) -> Result<(), ParseError> {
         while self.current < self.tokens.len() {
             // Get the top level identifier name, either a struct or proc
-            let name = self.consume_identifier();
+            let name = self.consume_identifier()?;
 
             // Consume compile time assign operator
 
-            self.consume(TokenType::Colon);
-            self.consume(TokenType::Colon);
+            self.consume(TokenType::Colon)?;
+            self.consume(TokenType::Colon)?;
 
             let tok = self.peek_type();
             match tok {
                 // Proc decleration
                 TokenType::LeftParen => {
-                    let proc_decl = self.parse_proc(name);
+                    let proc_decl = self.parse_proc(name)?;
                     self.program.push(TopLevel::ProcDecl(proc_decl));
                 }
                 // Struct decleration
                 TokenType::Struct => {
-                    let struct_decl = self.parse_struct(name);
+                    let struct_decl = self.parse_struct(name)?;
                     self.program.push(TopLevel::StructDecl(struct_decl));
                 }
                 _ => {
-                    let token = self.peek();
-                    error!(
-                        "{}:{}:{} Expected top-level procedure or struct declaration, got {}",
-                        self.file_path, token.span.start_line, token.span.start_column, tok
-                    );
-                    exit(1);
+                    return Err(ParseError {
+                        kind: ParseErrorKind::UnexpectedToken {
+                            expected: TokenSet::Text("top-level".to_string()),
+                            actual: self.peek_type(),
+                        },
+                        span: self.peek().span,
+                    });
                 }
             }
         }
+
+        Ok(())
     }
 
-    fn parse_type(&mut self) -> Type {
-        let ty = self.peek_type();
-        match ty {
-            TokenType::Ampersand => {
-                self.advance();
-                let inner_ty = self.parse_type();
-                Type::Ref(Box::new(inner_ty))
-            }
-            TokenType::Int => {
-                self.advance();
-                Type::Int
-            }
-            TokenType::Float => {
-                self.advance();
-                Type::Float
-            }
-            TokenType::String => {
-                self.advance();
-                Type::Str
-            }
-            TokenType::Bool => {
-                self.advance();
-                Type::Bool
-            }
-            TokenType::Unit => {
-                self.advance();
-                Type::Unit
-            }
-            TokenType::Ident(name) => {
-                self.advance();
-                Type::Struct(name)
-            }
-            TokenType::LeftBracket => {
-                self.advance();
-
-                // Get the element type
-                let elem_ty = self.parse_type();
-                let tok = self.peek();
-
-                // Fixed size array
-                if let TokenType::Comma = tok.token_type {
-                    self.advance();
-                    if let TokenType::IntegerLiteral(length) = self.peek_type() {
-                        if length < 0 {
-                            let tok = self.peek();
-                            error!(
-                                "{}:{}:{} Array length must be greater than 0",
-                                self.file_path, tok.span.start_line, tok.span.start_column
-                            );
-                            exit(1);
-                        }
-
-                        self.advance();
-                        self.consume(TokenType::RightBracket);
-                        return Type::Array(Box::new(elem_ty), ArrayLength::Fixed(length as usize));
-                    }
-
-                    let tok = self.peek();
-                    error!(
-                        "{}:{}:{} Expected integer literal for array length, got {}",
-                        self.file_path, tok.span.start_line, tok.span.start_column, tok.token_type
-                    );
-                    exit(1);
-                }
-
-                // Dynamic size array
-                if let TokenType::RightBracket = tok.token_type {
-                    self.advance();
-                    return Type::Array(Box::new(elem_ty), ArrayLength::Dynamic);
-                }
-
-                error!(
-                    "{}:{}:{} Expected integer literal for array length, got {}",
-                    self.file_path, tok.span.start_line, tok.span.start_column, tok.token_type
-                );
-                exit(1);
-            }
-            _ => {
-                let tok = self.peek();
-                error!(
-                    "{}:{}:{} Expected type, got {}",
-                    self.file_path, tok.span.start_line, tok.span.start_column, tok.token_type
-                );
-                exit(1);
-            }
-        }
-    }
-
-    fn parse_struct(&mut self, name: String) -> StructDecl {
+    fn parse_struct(&mut self, name: String) -> Result<StructDecl, ParseError> {
         let start_span = self.peek().span;
-        self.consume(TokenType::Struct);
-        self.consume(TokenType::LeftBrace);
+        self.consume(TokenType::Struct)?;
+        self.consume(TokenType::LeftBrace)?;
 
         let mut fields = HashMap::new();
         loop {
@@ -203,8 +71,8 @@ impl Parser {
                 break;
             }
 
-            let field_name = self.consume_identifier();
-            let field_ty = self.parse_type();
+            let field_name = self.consume_identifier()?;
+            let field_ty = self.parse_type()?;
             fields.insert(field_name, field_ty);
 
             // This ensures that there is no trailing comma
@@ -212,21 +80,21 @@ impl Parser {
                 break;
             }
 
-            self.consume(TokenType::Comma);
+            self.consume(TokenType::Comma)?;
         }
 
         let end_span = self.peek().span;
-        self.consume(TokenType::RightBrace);
-        StructDecl {
+        self.consume(TokenType::RightBrace)?;
+        Ok(StructDecl {
             name,
             fields,
             span: Span::join(start_span, end_span),
-        }
+        })
     }
 
-    fn parse_proc(&mut self, name: String) -> ProcDecl {
+    fn parse_proc(&mut self, name: String) -> Result<ProcDecl, ParseError> {
         let start_span = self.peek().span;
-        self.consume(TokenType::LeftParen);
+        self.consume(TokenType::LeftParen)?;
 
         let mut params = Vec::new();
         loop {
@@ -234,8 +102,8 @@ impl Parser {
             if self.peek_type() == TokenType::RightParen {
                 break;
             }
-            let param_name = self.consume_identifier();
-            let param_ty = self.parse_type();
+            let param_name = self.consume_identifier()?;
+            let param_ty = self.parse_type()?;
             params.push((param_name, param_ty));
 
             // Right paren or comma
@@ -243,26 +111,26 @@ impl Parser {
                 break;
             }
 
-            self.consume(TokenType::Comma);
+            self.consume(TokenType::Comma)?;
         }
 
-        self.consume(TokenType::RightParen);
+        self.consume(TokenType::RightParen)?;
 
-        let ret_ty = self.parse_type();
-        let block = self.parse_block();
+        let ret_ty = self.parse_type()?;
+        let block = self.parse_block()?;
         let end_span = block.span.clone();
 
-        ProcDecl {
+        Ok(ProcDecl {
             name,
             params,
             ret_ty,
             block,
             span: Span::join(start_span, end_span),
-        }
+        })
     }
 
-    fn parse_arguments(&mut self) -> Vec<Expr> {
-        self.consume(TokenType::LeftParen);
+    fn parse_arguments(&mut self) -> Result<Vec<Expr>, ParseError> {
+        self.consume(TokenType::LeftParen)?;
 
         let mut args = vec![];
         loop {
@@ -271,7 +139,7 @@ impl Parser {
                 break;
             }
 
-            let arg_expr = self.parse_expr();
+            let arg_expr = self.parse_expr()?;
             args.push(arg_expr);
 
             // Prevents trailing comma
@@ -279,16 +147,91 @@ impl Parser {
                 break;
             }
 
-            self.consume(TokenType::Comma);
+            self.consume(TokenType::Comma)?;
         }
 
-        self.consume(TokenType::RightParen);
-        args
+        self.consume(TokenType::RightParen)?;
+        Ok(args)
     }
 
-    fn parse_block(&mut self) -> Block {
+    fn parse_type(&mut self) -> Result<Type, ParseError> {
+        let ty = self.peek_type();
+        match ty {
+            TokenType::Ampersand => {
+                self.advance();
+                let inner_ty = self.parse_type()?;
+                Ok(Type::Ref(Box::new(inner_ty)))
+            }
+            TokenType::Int => {
+                self.advance();
+                Ok(Type::Int)
+            }
+            TokenType::Float => {
+                self.advance();
+                Ok(Type::Float)
+            }
+            TokenType::String => {
+                self.advance();
+                Ok(Type::Str)
+            }
+            TokenType::Bool => {
+                self.advance();
+                Ok(Type::Bool)
+            }
+            TokenType::Unit => {
+                self.advance();
+                Ok(Type::Unit)
+            }
+            TokenType::Ident(name) => {
+                self.advance();
+                Ok(Type::Struct(name))
+            }
+            TokenType::LeftBracket => {
+                self.advance();
+
+                // Get the element type
+                let elem_ty = self.parse_type()?;
+                let tok = self.peek();
+
+                let mut array_length = ArrayLength::Dynamic;
+
+                // Fixed size array
+                if let TokenType::Comma = tok.token_type {
+                    self.advance();
+
+                    if let TokenType::IntegerLiteral(length) = self.peek_type() {
+                        if length < 0 {
+                            return Err(ParseError {
+                                kind: ParseErrorKind::NegativeArrayLength,
+                                span: self.peek().span,
+                            });
+                        }
+                        array_length = ArrayLength::Fixed(length as usize);
+                        self.advance();
+                    } else {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::NonIntLitArrayLength,
+                            span: self.peek().span,
+                        });
+                    }
+                }
+
+                self.consume(TokenType::RightBracket)?;
+                Ok(Type::Array(Box::new(elem_ty), array_length))
+            }
+            _ => Err(ParseError {
+                kind: ParseErrorKind::UnexpectedToken {
+                    expected: TokenSet::Text("type".to_string()),
+                    actual: self.peek_type(),
+                },
+                span: self.peek().span,
+            }),
+        }
+    }
+
+    fn parse_block(&mut self) -> Result<Block, ParseError> {
         let start_span = self.peek().span.clone();
-        self.consume(TokenType::LeftBrace);
+        self.consume(TokenType::LeftBrace)?;
 
         let mut statements = vec![];
 
@@ -298,12 +241,12 @@ impl Parser {
                 // Statements
                 TokenType::Let => {
                     let span = statement.span.clone();
-                    self.consume(TokenType::Let);
-                    let name = self.consume_identifier();
-                    let ty = self.parse_type();
-                    self.consume(TokenType::Equal);
-                    let expr = self.parse_expr();
-                    self.consume(TokenType::Semicolon);
+                    self.consume(TokenType::Let)?;
+                    let name = self.consume_identifier()?;
+                    let ty = self.parse_type()?;
+                    self.consume(TokenType::Equal)?;
+                    let expr = self.parse_expr()?;
+                    self.consume(TokenType::Semicolon)?;
                     statements.push(Stmt::VarDecl {
                         name,
                         ty,
@@ -313,13 +256,13 @@ impl Parser {
                 }
                 TokenType::If => {
                     let span = statement.span.clone();
-                    self.consume(TokenType::If);
-                    let cond = self.parse_condition();
-                    let then_block = self.parse_block();
+                    self.consume(TokenType::If)?;
+                    let cond = self.parse_condition()?;
+                    let then_block = self.parse_block()?;
 
                     if self.peek_type() == TokenType::Else {
-                        self.consume(TokenType::Else);
-                        let else_block = self.parse_block();
+                        self.consume(TokenType::Else)?;
+                        let else_block = self.parse_block()?;
                         statements.push(Stmt::IfElse {
                             cond,
                             then_block,
@@ -336,20 +279,18 @@ impl Parser {
                 }
                 TokenType::While => {
                     let span = statement.span.clone();
-                    self.consume(TokenType::While);
-                    let cond = self.parse_condition();
-                    let block = self.parse_block();
+                    self.consume(TokenType::While)?;
+                    let cond = self.parse_condition()?;
+                    let block = self.parse_block()?;
                     statements.push(Stmt::While { cond, block, span });
                 }
                 TokenType::For => {
                     let span = statement.span.clone();
-                    self.consume(TokenType::For);
-                    let name = self.consume_identifier();
-                    self.consume(TokenType::In);
-
-                    let range = self.parse_condition();
-
-                    let block = self.parse_block();
+                    self.consume(TokenType::For)?;
+                    let name = self.consume_identifier()?;
+                    self.consume(TokenType::In)?;
+                    let range = self.parse_condition()?;
+                    let block = self.parse_block()?;
                     statements.push(Stmt::For {
                         name,
                         range,
@@ -359,70 +300,61 @@ impl Parser {
                 }
                 TokenType::Return => {
                     let span = statement.span.clone();
-                    self.consume(TokenType::Return);
+                    self.consume(TokenType::Return)?;
                     let expr = if self.peek_type() == TokenType::Semicolon {
                         Expr::Unit(span.clone())
                     } else {
-                        self.parse_expr()
+                        self.parse_expr()?
                     };
 
-                    self.consume(TokenType::Semicolon);
+                    self.consume(TokenType::Semicolon)?;
                     statements.push(Stmt::Ret { expr, span });
                 }
                 // Try to parse expression for call or assignment
                 _ => {
-                    let expr = self.parse_expr();
+                    let expr = self.parse_expr()?;
                     match self.peek_type() {
                         TokenType::Semicolon => {
                             // Check that it's a procedure call
                             let stmt_span = self.peek().span.clone();
-                            self.consume(TokenType::Semicolon);
+                            self.consume(TokenType::Semicolon)?;
                             if let Expr::Call { name, args, span } = expr {
                                 statements.push(Stmt::Call { name, args, span });
                             } else {
-                                let tok = self.peek();
-                                error!(
-                                    "{}:{}:{} Expected statement, got {}",
-                                    self.file_path,
-                                    tok.span.start_line,
-                                    tok.span.start_column,
-                                    tok.token_type
-                                );
-                                exit(1);
+                                return Err(ParseError {
+                                    kind: ParseErrorKind::UnexpectedToken {
+                                        expected: TokenSet::Text("statement".to_string()),
+                                        actual: self.peek_type(),
+                                    },
+                                    span: self.peek().span,
+                                });
                             }
                         }
                         TokenType::Equal => {
                             // Check that the expression is an lvalue
                             let span = self.peek().span.clone();
-                            self.consume(TokenType::Equal);
+                            self.consume(TokenType::Equal)?;
                             let lhs = expr;
                             if !lhs.is_lvalue() {
-                                let tok = self.peek();
-                                error!(
-                                    "{}:{}:{} Expected lvalue, got {}",
-                                    self.file_path,
-                                    tok.span.start_line,
-                                    tok.span.start_column,
-                                    tok.token_type
-                                );
-                                exit(1);
+                                return Err(ParseError {
+                                    kind: ParseErrorKind::InvalidLeftHandSide,
+                                    span: lhs.span().clone(),
+                                });
                             }
 
                             // Parse the right hand side and check for semicolon
-                            let rhs = self.parse_expr();
-                            self.consume(TokenType::Semicolon);
+                            let rhs = self.parse_expr()?;
+                            self.consume(TokenType::Semicolon)?;
                             statements.push(Stmt::Assign { lhs, rhs, span });
                         }
                         _ => {
-                            let tok = self.peek();
-                            error!(
-                                "{}:{}:{} Expected statement, got {}",
-                                self.file_path,
-                                tok.span.start_line,
-                                tok.span.start_column,
-                                tok.token_type
-                            );
-                            exit(1);
+                            return Err(ParseError {
+                                kind: ParseErrorKind::UnexpectedToken {
+                                    expected: TokenSet::Text("statement".to_string()),
+                                    actual: self.peek_type(),
+                                },
+                                span: self.peek().span,
+                            });
                         }
                     }
                 }
@@ -430,8 +362,8 @@ impl Parser {
         }
 
         let end_span = self.peek().span.clone();
-        self.consume(TokenType::RightBrace);
-        Block {
+        self.consume(TokenType::RightBrace)?;
+        Ok(Block {
             statements,
             span: Span::new(
                 start_span.start_line,
@@ -439,11 +371,11 @@ impl Parser {
                 end_span.end_line,
                 end_span.end_column,
             ),
-        }
+        })
     }
 
-    fn parse_struct_literal(&mut self) -> HashMap<String, Expr> {
-        self.consume(TokenType::LeftBrace);
+    fn parse_struct_literal(&mut self) -> Result<HashMap<String, Expr>, ParseError> {
+        self.consume(TokenType::LeftBrace)?;
         let mut fields = HashMap::new();
         loop {
             // Right brace or "<field> = <expression>"
@@ -451,9 +383,9 @@ impl Parser {
                 break;
             }
 
-            let field_name = self.consume_identifier();
-            self.consume(TokenType::Equal);
-            let field_expr = self.parse_expr();
+            let field_name = self.consume_identifier()?;
+            self.consume(TokenType::Equal)?;
+            let field_expr = self.parse_expr()?;
             fields.insert(field_name, field_expr);
 
             // Right brace or comma
@@ -461,63 +393,69 @@ impl Parser {
                 break;
             }
 
-            self.consume(TokenType::Comma);
+            self.consume(TokenType::Comma)?;
         }
 
-        self.consume(TokenType::RightBrace);
-        fields
+        self.consume(TokenType::RightBrace)?;
+        Ok(fields)
     }
 
-    fn parse_expr(&mut self) -> Expr {
+    fn parse_expr(&mut self) -> Result<Expr, ParseError> {
         self._parse_expr(false)
     }
 
-    fn parse_condition(&mut self) -> Expr {
+    fn parse_condition(&mut self) -> Result<Expr, ParseError> {
         self._parse_expr(true)
     }
 
-    fn _parse_expr(&mut self, is_condition: bool) -> Expr {
+    fn _parse_expr(&mut self, is_condition: bool) -> Result<Expr, ParseError> {
         self.parse_disjuncts(is_condition)
     }
 
-    fn parse_disjuncts(&mut self, is_condition: bool) -> Expr {
-        let mut lhs = self.parse_conjuncts(is_condition);
+    fn parse_disjuncts(&mut self, is_condition: bool) -> Result<Expr, ParseError> {
+        let mut lhs = self.parse_conjuncts(is_condition)?;
 
         while TokenType::Or == self.peek_type() {
             self.advance();
-            let rhs = self.parse_conjuncts(is_condition);
+            let rhs = self.parse_conjuncts(is_condition)?;
+
+            let start_span = lhs.span().clone();
+            let end_span = rhs.span().clone();
 
             lhs = Expr::Binary {
                 lhs: Box::new(lhs),
                 op: BinaryOp::Or,
                 rhs: Box::new(rhs),
-                span: Span::empty(),
+                span: Span::join(start_span, end_span),
             };
         }
 
-        lhs
+        Ok(lhs)
     }
 
-    fn parse_conjuncts(&mut self, is_condition: bool) -> Expr {
-        let mut lhs = self.parse_equality(is_condition);
+    fn parse_conjuncts(&mut self, is_condition: bool) -> Result<Expr, ParseError> {
+        let mut lhs = self.parse_equality(is_condition)?;
 
         while TokenType::And == self.peek_type() {
             self.advance();
-            let rhs = self.parse_equality(is_condition);
+            let rhs = self.parse_equality(is_condition)?;
+
+            let start_span = lhs.span().clone();
+            let end_span = rhs.span().clone();
 
             lhs = Expr::Binary {
                 lhs: Box::new(lhs),
                 op: BinaryOp::And,
                 rhs: Box::new(rhs),
-                span: Span::empty(),
+                span: Span::join(start_span, end_span),
             };
         }
 
-        lhs
+        Ok(lhs)
     }
 
-    fn parse_equality(&mut self, is_condition: bool) -> Expr {
-        let mut lhs = self.parse_comparison(is_condition);
+    fn parse_equality(&mut self, is_condition: bool) -> Result<Expr, ParseError> {
+        let mut lhs = self.parse_comparison(is_condition)?;
 
         use TokenType::*;
         loop {
@@ -528,21 +466,24 @@ impl Parser {
             };
             self.advance();
 
-            let rhs = self.parse_comparison(is_condition);
+            let rhs = self.parse_comparison(is_condition)?;
+
+            let start_span = lhs.span().clone();
+            let end_span = rhs.span().clone();
 
             lhs = Expr::Binary {
                 lhs: Box::new(lhs),
                 op,
                 rhs: Box::new(rhs),
-                span: Span::empty(),
+                span: Span::join(start_span, end_span),
             };
         }
 
-        lhs
+        Ok(lhs)
     }
 
-    fn parse_comparison(&mut self, is_condition: bool) -> Expr {
-        let mut lhs = self.parse_term(is_condition);
+    fn parse_comparison(&mut self, is_condition: bool) -> Result<Expr, ParseError> {
+        let mut lhs = self.parse_term(is_condition)?;
 
         use TokenType::*;
         loop {
@@ -555,21 +496,24 @@ impl Parser {
             };
             self.advance();
 
-            let rhs = self.parse_term(is_condition);
+            let rhs = self.parse_term(is_condition)?;
+
+            let start_span = lhs.span().clone();
+            let end_span = rhs.span().clone();
 
             lhs = Expr::Binary {
                 lhs: Box::new(lhs),
                 op,
                 rhs: Box::new(rhs),
-                span: Span::empty(),
+                span: Span::join(start_span, end_span),
             };
         }
 
-        lhs
+        Ok(lhs)
     }
 
-    fn parse_term(&mut self, is_condition: bool) -> Expr {
-        let mut lhs = self.parse_factor(is_condition);
+    fn parse_term(&mut self, is_condition: bool) -> Result<Expr, ParseError> {
+        let mut lhs = self.parse_factor(is_condition)?;
 
         use TokenType::*;
         loop {
@@ -580,21 +524,24 @@ impl Parser {
             };
             self.advance();
 
-            let rhs = self.parse_factor(is_condition);
+            let rhs = self.parse_factor(is_condition)?;
+
+            let start_span = lhs.span().clone();
+            let end_span = rhs.span().clone();
 
             lhs = Expr::Binary {
                 lhs: Box::new(lhs),
                 op,
                 rhs: Box::new(rhs),
-                span: Span::empty(),
+                span: Span::join(start_span, end_span),
             };
         }
 
-        lhs
+        Ok(lhs)
     }
 
-    fn parse_factor(&mut self, is_condition: bool) -> Expr {
-        let mut lhs = self.parse_prefix(is_condition);
+    fn parse_factor(&mut self, is_condition: bool) -> Result<Expr, ParseError> {
+        let mut lhs = self.parse_prefix(is_condition)?;
 
         use TokenType::*;
         loop {
@@ -605,152 +552,151 @@ impl Parser {
             };
             self.advance();
 
-            let rhs = self.parse_prefix(is_condition);
+            let rhs = self.parse_prefix(is_condition)?;
+
+            let start_span = lhs.span().clone();
+            let end_span = rhs.span().clone();
 
             lhs = Expr::Binary {
                 lhs: Box::new(lhs),
                 op,
                 rhs: Box::new(rhs),
-                span: Span::empty(),
+                span: Span::join(start_span, end_span),
             };
         }
 
-        lhs
+        Ok(lhs)
     }
 
-    fn parse_prefix(&mut self, is_condition: bool) -> Expr {
+    fn parse_prefix(&mut self, is_condition: bool) -> Result<Expr, ParseError> {
         use TokenType::*;
 
         match self.peek_type() {
             Not => {
                 self.advance();
-                let rhs = self.parse_prefix(is_condition);
+                let rhs = self.parse_prefix(is_condition)?;
 
-                return Expr::Unary {
+                return Ok(Expr::Unary {
                     op: UnaryOp::Not,
                     rhs: Box::new(rhs),
                     span: Span::empty(),
-                };
+                });
             }
             Ampersand => {
                 self.advance();
-                let rhs = self.parse_prefix(is_condition);
+                let rhs = self.parse_prefix(is_condition)?;
                 if rhs.is_rvalue() {
-                    let tok = self.peek();
-                    error!(
-                        "{}:{}:{} Can not take reference of rvalue",
-                        self.file_path, tok.span.start_line, tok.span.start_column
-                    );
-                    exit(1);
+                    return Err(ParseError {
+                        kind: ParseErrorKind::InvalidReferenceTarget,
+                        span: self.peek().span,
+                    });
                 }
-                return Expr::Ref(Box::new(rhs));
+                return Ok(Expr::Ref(Box::new(rhs)));
             }
             Star => {
                 self.advance();
-                let rhs = self.parse_prefix(is_condition);
-                return Expr::Deref(Box::new(rhs));
+                let rhs = self.parse_prefix(is_condition)?;
+                return Ok(Expr::Deref(Box::new(rhs)));
             }
             _ => {}
         }
 
-        if let Not = self.peek_type() {}
-
         self.parse_postfix(is_condition)
     }
 
-    fn parse_postfix(&mut self, is_condition: bool) -> Expr {
-        let mut lhs = self.parse_primary(is_condition);
+    fn parse_postfix(&mut self, is_condition: bool) -> Result<Expr, ParseError> {
+        let mut lhs = self.parse_primary(is_condition)?;
 
         loop {
             lhs = match self.peek_type() {
                 TokenType::LeftBracket => {
                     self.advance();
-                    let index_expr = self.parse_expr();
+                    let index_expr = self.parse_expr()?;
                     let end_span = self.peek().span.clone();
-                    self.consume(TokenType::RightBracket);
+                    self.consume(TokenType::RightBracket)?;
+                    let start_span = lhs.span().clone();
                     Expr::Index {
                         expr: Box::new(lhs),
                         index: Box::new(index_expr),
-                        span: Span::new(
-                            0,
-                            0, // TODO: Fix this
-                            end_span.end_line,
-                            end_span.end_column,
-                        ),
+                        span: Span::join(start_span, end_span),
                     }
                 }
                 TokenType::Dot => {
                     self.advance();
-                    let field = self.consume_identifier();
+                    let field = self.consume_identifier()?;
                     let end_span = self.peek().span.clone();
+                    let start_span = lhs.span().clone();
                     Expr::Proj {
                         expr: Box::new(lhs),
                         field,
-                        span: Span::new(
-                            0,
-                            0, // TODO: Fix this
-                            end_span.end_line,
-                            end_span.end_column,
-                        ),
+                        span: Span::join(start_span, end_span),
                     }
                 }
                 _ => break,
             };
         }
 
-        lhs
+        Ok(lhs)
     }
 
-    fn parse_primary(&mut self, is_condition: bool) -> Expr {
+    fn parse_primary(&mut self, is_condition: bool) -> Result<Expr, ParseError> {
         match self.peek_type() {
-            TokenType::IntegerLiteral(i) => Expr::Lit(Lit::Int(i, self.advance().span)),
-            TokenType::FloatLiteral(f) => Expr::Lit(Lit::Float(f, self.advance().span)),
-            TokenType::StringLiteral(s) => Expr::Lit(Lit::Str(s, self.advance().span)),
-            TokenType::True => Expr::Lit(Lit::Bool(true, self.advance().span)),
-            TokenType::False => Expr::Lit(Lit::Bool(false, self.advance().span)),
+            TokenType::IntegerLiteral(i) => {
+                let span = self.peek().span.clone();
+                self.advance();
+                Ok(Expr::Lit(Lit::Int(i, span)))
+            }
+            TokenType::FloatLiteral(f) => {
+                let span = self.peek().span.clone();
+                self.advance();
+                Ok(Expr::Lit(Lit::Float(f, span)))
+            }
+            TokenType::StringLiteral(s) => {
+                let span = self.peek().span.clone();
+                self.advance();
+                Ok(Expr::Lit(Lit::Str(s, span)))
+            }
+            TokenType::True => {
+                let span = self.peek().span.clone();
+                self.advance();
+                Ok(Expr::Lit(Lit::Bool(true, span)))
+            }
+            TokenType::False => {
+                let span = self.peek().span.clone();
+                self.advance();
+                Ok(Expr::Lit(Lit::Bool(false, span)))
+            }
             TokenType::Ident(_) | TokenType::Hash => {
                 // Identifier
                 let start_span = self.peek().span.clone();
-                let name = if let TokenType::Ident(name) = self.peek_type() {
+                let mut name = String::new();
+
+                if let TokenType::Hash = self.peek_type() {
                     self.advance();
-                    name
-                } else {
-                    self.advance();
-                    if let TokenType::Ident(name) = self.peek_type() {
-                        self.advance();
-                        format!("#{name}")
-                    } else {
-                        let tok = self.peek();
-                        error!(
-                            "{}:{}:{} Expected identifier, got {}",
-                            self.file_path,
-                            tok.span.start_line,
-                            tok.span.start_column,
-                            tok.token_type
-                        );
-                        exit(1);
-                    }
-                };
+                    name.push('#');
+                }
+
+                name.push_str(&self.consume_identifier()?);
 
                 match self.peek_type() {
                     TokenType::LeftParen => {
                         if name == "#array" {
-                            self.consume(TokenType::LeftParen);
-                            let ty = self.parse_type();
-                            self.consume(TokenType::Comma);
-                            let expr = self.parse_expr();
-                            self.consume(TokenType::RightParen);
+                            self.consume(TokenType::LeftParen)?;
+                            let ty = self.parse_type()?;
+                            self.consume(TokenType::Comma)?;
+                            let expr = self.parse_expr()?;
+                            self.consume(TokenType::RightParen)?;
 
-                            return Expr::MakeArray {
+                            return Ok(Expr::MakeArray {
                                 ty,
                                 expr: Box::new(expr),
                                 span: Span::empty(),
-                            };
+                            });
                         }
 
-                        let args = self.parse_arguments();
+                        let args = self.parse_arguments()?;
                         let end_span = self.peek().span.clone();
-                        Expr::Call {
+                        Ok(Expr::Call {
                             name,
                             args,
                             span: Span::new(
@@ -759,31 +705,34 @@ impl Parser {
                                 end_span.end_line,
                                 end_span.end_column,
                             ),
-                        }
+                        })
                     }
                     TokenType::LeftBrace => {
                         // To disambiguate between struct literal and blocks
                         if is_condition {
-                            return Expr::Var {
+                            return Ok(Expr::Var {
                                 name,
                                 span: start_span,
-                            };
+                            });
                         }
 
-                        let fields = self.parse_struct_literal();
+                        let fields = self.parse_struct_literal()?;
                         let end_span = self.peek().span.clone();
-                        Expr::Lit(Lit::Struct(fields, Span::join(start_span, end_span)))
+                        Ok(Expr::Lit(Lit::Struct(
+                            fields,
+                            Span::join(start_span, end_span),
+                        )))
                     }
-                    _ => Expr::Var {
+                    _ => Ok(Expr::Var {
                         name,
                         span: start_span,
-                    },
+                    }),
                 }
             }
             TokenType::LeftParen => {
                 self.advance();
                 let inner_expr = self.parse_expr();
-                self.consume(TokenType::RightParen);
+                self.consume(TokenType::RightParen)?;
                 inner_expr
             }
             TokenType::LeftBracket => self.parse_array_literal(),
@@ -798,23 +747,73 @@ impl Parser {
         }
     }
 
-    fn parse_array_literal(&mut self) -> Expr {
-        self.consume(TokenType::LeftBracket);
+    fn parse_array_literal(&mut self) -> Result<Expr, ParseError> {
+        self.consume(TokenType::LeftBracket)?;
         let start_span = self.peek().span.clone();
         let mut elem_exprs = vec![];
         while self.peek_type() != TokenType::RightBracket {
-            let elem_expr = self.parse_expr();
+            let elem_expr = self.parse_expr()?;
             elem_exprs.push(elem_expr);
 
             if self.peek_type() == TokenType::RightBracket {
                 break;
             }
 
-            self.consume(TokenType::Comma);
+            self.consume(TokenType::Comma)?;
         }
 
         let end_span = self.peek().span.clone();
-        self.consume(TokenType::RightBracket);
-        Expr::Lit(Lit::Array(elem_exprs, Span::join(start_span, end_span)))
+        self.consume(TokenType::RightBracket)?;
+        Ok(Expr::Lit(Lit::Array(
+            elem_exprs,
+            Span::join(start_span, end_span),
+        )))
+    }
+
+    fn peek(&self) -> Token {
+        self.tokens
+            .get(self.current)
+            .cloned()
+            .unwrap_or(Token::new(TokenType::EOF, Span::empty()))
+    }
+
+    fn peek_type(&self) -> TokenType {
+        self.peek().token_type
+    }
+
+    fn advance(&mut self) -> Token {
+        self.current += 1;
+        self.peek()
+    }
+
+    fn consume(&mut self, expected: TokenType) -> Result<(), ParseError> {
+        if self.peek_type() == expected {
+            self.current += 1;
+            Ok(())
+        } else {
+            Err(ParseError {
+                kind: ParseErrorKind::UnexpectedToken {
+                    expected: TokenSet::One(expected),
+                    actual: self.peek().token_type,
+                },
+                span: self.peek().span,
+            })
+        }
+    }
+
+    fn consume_identifier(&mut self) -> Result<String, ParseError> {
+        let tok = self.peek();
+        if let TokenType::Ident(name) = tok.token_type {
+            self.current += 1;
+            Ok(name.clone())
+        } else {
+            Err(ParseError {
+                kind: ParseErrorKind::UnexpectedToken {
+                    expected: TokenSet::Text("identifier".to_string()),
+                    actual: self.peek().token_type,
+                },
+                span: self.peek().span,
+            })
+        }
     }
 }
