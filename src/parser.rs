@@ -228,7 +228,7 @@ impl Parser {
         let start_span = self.peek().span;
         self.consume(TokenType::LeftParen);
 
-        let mut params = HashMap::new();
+        let mut params = Vec::new();
         loop {
             // Right paren or "<param> <type>"
             if self.peek_type() == TokenType::RightParen {
@@ -236,7 +236,7 @@ impl Parser {
             }
             let param_name = self.consume_identifier();
             let param_ty = self.parse_type();
-            params.insert(param_name, param_ty);
+            params.push((param_name, param_ty));
 
             // Right paren or comma
             if self.peek_type() == TokenType::RightParen {

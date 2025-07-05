@@ -190,6 +190,8 @@ This is a multi line comment
   - use references as types and function semanticsn
 - [x] Floats
 - [x] `not` operator
+- [ ] Default values
+- [ ] `#array` directive for dynamically allocated array
 - [ ] Negative numbers
 - [ ] Fixed precision numbers like u32, i64 and so on
 - [ ] Make strings more concrete, array of chars? How do we represent them?

@@ -1,0 +1,46 @@
+List :: struct {
+    size int,
+    cap int,
+    data [float]
+}
+
+list_new :: () List {
+    let l List =  List {
+        size = 0,
+        cap = 5,
+        data = #array(float, 10)
+    };
+    return l;
+}
+
+list_push :: (l &List, value float) unit {
+    if l.size < l.cap {
+        l.data[l.size] = value;
+        l.size = l.size + 1;
+        return;
+    }
+
+    let old_cap int = l.cap;
+    l.cap = l.cap * 2;
+    let new_data [float] = #array(float, l.cap);
+
+    for i in #range(old_cap) {
+        new_data[i] = l.data[i];
+    }
+
+    l.data = new_data;
+
+    list_push(l, value);
+}
+
+main :: () unit {
+    let l List = list_new();
+    #print(l.data);
+
+    for i in #range(5) {
+        for j in #range(5) {
+            list_push(&l, 69.0);
+        }
+        #print(l.data);
+    }
+}

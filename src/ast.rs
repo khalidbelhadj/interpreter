@@ -22,7 +22,7 @@ pub struct StructDecl {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ProcDecl {
     pub name: String,
-    pub params: HashMap<String, Type>,
+    pub params: Vec<(String, Type)>,
     pub ret_ty: Type,
     pub block: Block,
     pub span: Span,

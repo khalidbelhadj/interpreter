@@ -136,24 +136,11 @@ fn main() {
         println!("{}", e);
     }
 
-    if !typer.errors.is_empty() {
-        println!(
-            "Could not compile {} due to {} previous errors",
-            typer.file_path,
-            typer.errors.len()
-        );
-        exit(1);
-    }
-
     let compile_end = SystemTime::now();
     let duration = compile_end
         .duration_since(compile_start)
         .unwrap()
         .as_secs_f64();
-
-    if args.time {
-        println!("Compiled in {}s", duration);
-    }
 
     if args.symbols {
         println!("Structs");
@@ -168,6 +155,20 @@ fn main() {
         println!();
     }
 
+    if !typer.errors.is_empty() {
+        println!(
+            "Could not compile {} due to {} previous errors",
+            typer.file_path,
+            typer.errors.len()
+        );
+        exit(1);
+    }
+
+    if args.time {
+        println!("Compiled in {}s", duration);
+    }
+
+    println!("=========================\n");
     let mut evaluator = Evaluator::new();
     let result = evaluator.eval_program(&typer.program);
     match result {

@@ -19,7 +19,7 @@ pub struct Typer {
     pub program: Program,
     pub scopes: Vec<Scope>,
     pub structs: HashMap<String, HashMap<String, Type>>,
-    pub procs: HashMap<String, (HashMap<String, Type>, Type)>,
+    pub procs: HashMap<String, (Vec<(String, Type)>, Type)>,
     pub file_path: String,
     pub errors: Vec<TypeError>,
 }
@@ -40,16 +40,16 @@ impl Typer {
         self.errors.push(message);
     }
 
-    pub fn get_proc(&self, name: &str) -> Option<(HashMap<String, Type>, Type)> {
+    pub fn get_proc(&self, name: &str) -> Option<(Vec<(String, Type)>, Type)> {
         self.procs.get(name).cloned()
     }
 
     pub fn add_proc(
         &mut self,
         name: String,
-        params: HashMap<String, Type>,
+        params: Vec<(String, Type)>,
         ret_ty: Type,
-    ) -> Option<(HashMap<String, Type>, Type)> {
+    ) -> Option<(Vec<(String, Type)>, Type)> {
         if self.procs.contains_key(&name) {
             self.add_error(format!(
                 "{}:{}:{} Procedure {:?} already defined",
@@ -100,7 +100,6 @@ impl Typer {
                 span,
             }) => {
                 // Gather the parameter types
-
                 if *name == "main" {
                     if !params.is_empty() {
                         self.add_error(format!(
@@ -118,13 +117,13 @@ impl Typer {
                         return;
                     }
 
-                    self.type_check_block(HashMap::new(), block, Type::Unit);
+                    self.type_check_block(Vec::new(), block, Type::Unit);
                     return;
                 }
 
-                let mut param_types = HashMap::new();
+                let mut param_types = Vec::new();
                 for (name, ty) in params.iter() {
-                    param_types.insert(name.clone(), ty.clone());
+                    param_types.push((name.clone(), ty.clone()));
                 }
 
                 // Add procedure to the procedure map
@@ -151,6 +150,7 @@ impl Typer {
 
     fn type_infer(&mut self, expr: &Expr) -> Option<Type> {
         match expr {
+            Expr::Unit(_) => Some(Type::Unit),
             Expr::Lit(Lit::Bool(val, lit_span)) => Some(Type::Bool),
             Expr::Lit(Lit::Int(val, lit_span)) => Some(Type::Int),
             Expr::Lit(Lit::Float(val, lit_span)) => Some(Type::Float),
@@ -172,10 +172,9 @@ impl Typer {
                     return None;
                 }
 
-                // Iterate over params and check that args match
-                for (i, (arg, param)) in args.iter().zip(params).enumerate() {
-                    let (_, ty) = param;
-                    self.type_check_expr(arg, &ty);
+                for (i, arg) in args.iter().enumerate() {
+                    let (_, ty) = params.get(i).expect("Missing parameter in procedure call");
+                    self.type_check_expr(arg, ty);
                 }
 
                 Some(ret_ty)
@@ -308,7 +307,7 @@ impl Typer {
 
     fn type_check_block(
         &mut self,
-        scope: HashMap<String, Type>,
+        scope: Vec<(String, Type)>,
         block: &Block,
         ret_ty: Type,
     ) -> bool {
@@ -375,9 +374,11 @@ impl Typer {
 
                     let (params, ret_ty) = proc_ty.unwrap();
 
+                    println!("{params:?}");
+
                     // iterate over params and check that args match
                     for (i, arg) in args.iter().enumerate() {
-                        let param = params.iter().nth(i);
+                        let param = params.get(i);
                         match param {
                             Some((_, ty)) => {
                                 self.type_check_expr(arg, ty);
@@ -399,7 +400,7 @@ impl Typer {
                     span,
                 } => {
                     self.type_check_expr(cond, &Type::Bool);
-                    self.type_check_block(HashMap::new(), then_block, ret_ty.clone());
+                    self.type_check_block(Vec::new(), then_block, ret_ty.clone());
                 }
                 Stmt::IfElse {
                     cond,
@@ -409,15 +410,14 @@ impl Typer {
                 } => {
                     self.type_check_expr(cond, &Type::Bool);
 
-                    let if_returns =
-                        self.type_check_block(HashMap::new(), then_block, ret_ty.clone());
+                    let if_returns = self.type_check_block(Vec::new(), then_block, ret_ty.clone());
                     let else_returns =
-                        self.type_check_block(HashMap::new(), else_block, ret_ty.clone());
+                        self.type_check_block(Vec::new(), else_block, ret_ty.clone());
                     has_returned = if_returns && else_returns;
                 }
                 Stmt::While { cond, block, span } => {
                     self.type_check_expr(cond, &Type::Bool);
-                    self.type_check_block(HashMap::new(), block, ret_ty.clone());
+                    self.type_check_block(Vec::new(), block, ret_ty.clone());
                 }
                 Stmt::For {
                     name,
@@ -425,9 +425,7 @@ impl Typer {
                     block,
                     span,
                 } => {
-                    let mut new_scope = HashMap::new();
-                    new_scope.insert(name.clone(), Type::Int);
-                    self.type_check_block(new_scope, block, ret_ty.clone());
+                    self.type_check_block(vec![(name.clone(), Type::Int)], block, ret_ty.clone());
                 }
                 Stmt::Ret { expr, span } => {
                     self.type_check_expr(expr, &ret_ty);
@@ -437,6 +435,10 @@ impl Typer {
         }
 
         self.exit_scope();
+
+        if !has_returned && ret_ty != Type::Unit {
+            self.add_error(format!("Expected return type {:?}, got unit", ret_ty));
+        }
 
         has_returned
     }
@@ -537,10 +539,7 @@ impl Typer {
 
                 // iterate over params and check that args match
                 for (i, arg) in args.iter().enumerate() {
-                    let (_, ty) = params
-                        .iter()
-                        .nth(i)
-                        .expect("Missing parameter in procedure call");
+                    let (_, ty) = params.get(i).expect("Missing parameter in procedure call");
                     self.type_check_expr(arg, ty);
                 }
 

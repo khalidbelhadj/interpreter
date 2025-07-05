@@ -9,7 +9,6 @@ use std::fmt::format;
 use std::fmt::Display;
 use std::process::exit;
 use std::rc::Rc;
-use std::thread::panicking;
 
 #[derive(Debug, Clone)]
 pub enum Value {
@@ -175,9 +174,11 @@ impl Evaluator {
                 Value::Struct(map)
             }
             Type::Array(ty, array_length) => match array_length {
-                ArrayLength::Fixed(length) => {
-                    Value::Array(vec![Value::new_ref(self.value_from_type(*ty)); length])
-                }
+                ArrayLength::Fixed(length) => Value::Array(
+                    (0..length)
+                        .map(|i| Value::new_ref(self.value_from_type(*ty.clone())))
+                        .collect(),
+                ),
                 ArrayLength::Dynamic => Value::Array(Vec::new()),
             },
             Type::Ref(_) => unreachable!(),
@@ -381,7 +382,7 @@ impl Evaluator {
                             print!(" ");
                         }
                     }
-                    println!(" ");
+                    println!();
                     return Ok(None);
                 }
 
@@ -532,19 +533,19 @@ impl Evaluator {
         }
     }
 
-    fn call_proc(&mut self, func: &ProcDecl, args: Vec<Value>) -> Result<Value, String> {
-        let frame = StackFrame::new(func.name.clone());
+    fn call_proc(&mut self, proc: &ProcDecl, args: Vec<Value>) -> Result<Value, String> {
+        let frame = StackFrame::new(proc.name.clone());
         self.call_stack.push(frame);
         self.current_frame()?.push_scope();
 
-        let param_names: Vec<String> = func.params.keys().cloned().collect();
+        let param_names: Vec<String> = proc.params.iter().map(|x| x.0.clone()).collect();
         if param_names.len() != args.len() {
             self.current_frame()?.pop_scope();
             self.call_stack.pop();
 
             return Err(format!(
                 "Function '{}' expects {} arguments, got {}",
-                func.name,
+                proc.name,
                 param_names.len(),
                 args.len()
             ));
@@ -555,7 +556,7 @@ impl Evaluator {
             self.current_frame()?.define(param_name.clone(), arg_ref);
         }
 
-        let result = self.eval_block(&func.block)?;
+        let result = self.eval_block(&proc.block)?;
 
         self.current_frame()?.pop_scope();
         self.call_stack.pop();
