@@ -612,7 +612,11 @@ impl Typer {
             return;
         }
 
-        let fields = decl.fields.clone();
+        let fields = decl
+            .fields
+            .iter()
+            .map(|(k, v)| (k.clone(), v.0.clone()))
+            .collect();
         self.structs.insert(decl.name.clone(), fields);
     }
 

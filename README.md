@@ -94,7 +94,11 @@ while x < 10 {
     x = x + 1;
 }
 
-for i in 0..10 {
+,,r i in #range(0, 10) {
+    #print(i);
+}
+
+for i in #range(10) {
     #print(i);
 }
 ```
@@ -190,14 +194,20 @@ This is a multi line comment
   - use references as types and function semanticsn
 - [x] Floats
 - [x] `not` operator
-- [ ] Default values
-- [ ] `#array` directive for dynamically allocated array
+- [x] `#array` directive for dynamically allocated array
+- [x] Default values
+    - Figure out what the default value of things are
+    - Assign default value for struct fields
 - [ ] Negative numbers
 - [ ] Fixed precision numbers like u32, i64 and so on
 - [ ] Make strings more concrete, array of chars? How do we represent them?
 - [ ] Tuples
 - [ ] Variants
+    - Enums
+    - Raw unions
+    - Tagged union
 - [ ] Generics
 - [ ] Type inference
 - [ ] Standard library
   - collections
+  - libc like library

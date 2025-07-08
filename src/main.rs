@@ -70,14 +70,7 @@ fn init_logger() {
             let line = record.line().map_or(0, |l| l);
 
             // Format the log message with module, file:line, level, and message
-            writeln!(
-                buf,
-                "[{}:{}][{}]: {}",
-                file,
-                line,
-                colored_level,
-                record.args()
-            )
+            writeln!(buf, "[{}]{}", colored_level, record.args())
         })
         .init();
 }

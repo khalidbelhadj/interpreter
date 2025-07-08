@@ -37,12 +37,12 @@ impl Parser {
             match tok {
                 // Proc decleration
                 TokenType::LeftParen => {
-                    let proc_decl = self.parse_proc(name)?;
+                    let proc_decl = self.parse_proc_decl(name)?;
                     self.program.push(TopLevel::ProcDecl(proc_decl));
                 }
                 // Struct decleration
                 TokenType::Struct => {
-                    let struct_decl = self.parse_struct(name)?;
+                    let struct_decl = self.parse_struct_decl(name)?;
                     self.program.push(TopLevel::StructDecl(struct_decl));
                 }
                 _ => {
@@ -60,7 +60,7 @@ impl Parser {
         Ok(())
     }
 
-    fn parse_struct(&mut self, name: String) -> Result<StructDecl, ParseError> {
+    fn parse_struct_decl(&mut self, name: String) -> Result<StructDecl, ParseError> {
         let start_span = self.peek().span;
         self.consume(TokenType::Struct)?;
         self.consume(TokenType::LeftBrace)?;
@@ -73,7 +73,15 @@ impl Parser {
 
             let field_name = self.consume_identifier()?;
             let field_ty = self.parse_type()?;
-            fields.insert(field_name, field_ty);
+
+            let mut default_value: Option<Expr> = None;
+
+            if self.peek_type() == TokenType::Equal {
+                self.advance();
+                default_value = Some(self.parse_expr()?);
+            }
+
+            fields.insert(field_name, (field_ty, default_value));
 
             // This ensures that there is no trailing comma
             if self.peek_type() == TokenType::RightBrace {
@@ -92,7 +100,7 @@ impl Parser {
         })
     }
 
-    fn parse_proc(&mut self, name: String) -> Result<ProcDecl, ParseError> {
+    fn parse_proc_decl(&mut self, name: String) -> Result<ProcDecl, ParseError> {
         let start_span = self.peek().span;
         self.consume(TokenType::LeftParen)?;
 

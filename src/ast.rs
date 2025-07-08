@@ -19,7 +19,7 @@ pub enum TopLevel {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct StructDecl {
     pub name: String,
-    pub fields: HashMap<String, Type>,
+    pub fields: HashMap<String, (Type, Option<Expr>)>,
     pub span: Span,
 }
 

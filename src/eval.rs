@@ -152,7 +152,7 @@ impl Evaluator {
         }
     }
 
-    fn value_from_type(&self, ty: Type) -> Value {
+    fn value_from_type(&mut self, ty: Type) -> Value {
         match ty {
             Type::Unit => Value::Unit,
             Type::Int => Value::Int(0),
@@ -160,17 +160,26 @@ impl Evaluator {
             Type::Str => Value::Str("".to_string()),
             Type::Bool => Value::Bool(false),
             Type::Struct(s) => {
-                let struct_decl = self.structs.get(&s);
+                let struct_decl = self.structs.get_mut(&s);
                 if struct_decl.is_none() {
                     panic!("no proc decl of this type");
                 }
 
                 let struct_decl = struct_decl.unwrap();
-                let map: HashMap<_, _> = struct_decl
-                    .fields
-                    .iter()
-                    .map(|(k, v)| (k.clone(), Value::new_ref(self.value_from_type(v.clone()))))
-                    .collect();
+                let mut map = HashMap::new();
+
+                for (k, v) in struct_decl.fields.clone().iter() {
+                    match &v.1 {
+                        Some(expr) => {
+                            let value = Value::new_ref(self.eval_expr(&expr).unwrap());
+                            map.insert(k.to_string(), value);
+                        }
+                        None => {
+                            let value = Value::new_ref(self.value_from_type(v.0.clone()));
+                            map.insert(k.to_string(), value);
+                        }
+                    }
+                }
                 Value::Struct(map)
             }
             Type::Array(ty, array_length) => match array_length {

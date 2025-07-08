@@ -1,9 +1,18 @@
-A :: struct {
-    a int,
-    xs [int]
+B :: struct {
+    a int = add(69, 420)
 }
 
+A :: struct {
+    b B
+}
+
+add :: (a int, b int) int {
+    let sum int = a + b;
+    return sum;
+}
+
+
 main :: () unit {
-    let ys [[A]] = #array([A], 10);
+    let ys [A] = #array(A, 10);
     #print(ys);
 }
