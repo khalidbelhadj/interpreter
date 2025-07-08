@@ -1,7 +1,6 @@
 #![allow(unused)]
 pub mod ast;
 pub mod eval;
-pub mod evaluator;
 pub mod parser;
 pub mod token;
 pub mod tokeniser;
@@ -10,7 +9,6 @@ pub mod typer;
 use crate::ast::ParseError;
 use crate::ast::TypeErrorKind;
 use crate::eval::Evaluator;
-use crate::evaluator::*;
 use crate::parser::*;
 use crate::tokeniser::*;
 use crate::typer::*;
