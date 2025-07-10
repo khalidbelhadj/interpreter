@@ -1,4 +1,5 @@
 #![allow(unused)]
+
 pub mod ast;
 pub mod eval;
 pub mod parser;
@@ -75,6 +76,7 @@ fn init_logger() {
 
 fn main() {
     init_logger();
+    println!("===================================");
 
     let args = Args::parse();
     let file_path = args.file_name;
@@ -82,8 +84,8 @@ fn main() {
     let compile_start = SystemTime::now();
     let start = SystemTime::now();
     let mut tokeniser = Tokeniser::from_file(file_path.clone());
-    let tokenise_result = tokeniser.tokenise();
-    if let Err(err) = tokenise_result {
+
+    if let Err(err) = tokeniser.tokenise() {
         match err.kind {
             token::LexicalErrorKind::UnexpectedCharacter(c) => error!(
                 "{}:{}:{}: Unexpected character {c}",
@@ -111,7 +113,10 @@ fn main() {
     }
 
     let end = SystemTime::now();
-    let duration = end.duration_since(start).unwrap();
+    let Ok(duration) = end.duration_since(start) else {
+        error!("Duration failed");
+        exit(1);
+    };
     if args.time {
         println!("Tokenised in {}s", duration.as_secs_f64());
     }
@@ -126,10 +131,8 @@ fn main() {
     let mut parser = parser::Parser::new(tokeniser.file_path, tokeniser.tokens);
     let start = SystemTime::now();
     let mut tokeniser = Tokeniser::from_file(file_path.clone());
-    let parse_result = parser.parse();
 
-    if parse_result.is_err() {
-        let err = parse_result.unwrap_err();
+    if let Err(err) = parser.parse() {
         match err.kind {
             ast::ParseErrorKind::UnexpectedToken { expected, actual } => {
                 error!(
@@ -158,10 +161,13 @@ fn main() {
     }
 
     let end = SystemTime::now();
-    let duration = end.duration_since(start).unwrap();
+    let Ok(duration) = end.duration_since(start) else {
+        error!("Duration failed");
+        exit(1);
+    };
 
     if args.time {
-        println!("Parserd in {}s", duration.as_secs_f64());
+        println!("Parsed in {}s", duration.as_secs_f64());
     }
 
     if args.ast {
@@ -176,7 +182,10 @@ fn main() {
     let mut tokeniser = Tokeniser::from_file(file_path.clone());
     typer.type_check();
     let end = SystemTime::now();
-    let duration = end.duration_since(start).unwrap();
+    let Ok(duration) = end.duration_since(start) else {
+        error!("Duration failed");
+        exit(1);
+    };
     if args.time {
         println!("Type checked in {}s", duration.as_secs_f64());
     }
@@ -222,7 +231,7 @@ fn main() {
                 file_path, e.span.start_line, e.span.start_column
             ),
             TypeErrorKind::StructNotDefined => error!(
-                "{}:{}:{}: Struct already defined",
+                "{}:{}:{}: Struct not defined",
                 file_path, e.span.start_line, e.span.start_column
             ),
             TypeErrorKind::ProjectingNonStruct => error!(
@@ -249,8 +258,8 @@ fn main() {
                 "{}:{}:{}: Scope not defined",
                 file_path, e.span.start_line, e.span.start_column
             ),
-            TypeErrorKind::StructFielNotFound { field, struct_name } => error!(
-                "{}:{}:{}: Field {} not found in struct {}",
+            TypeErrorKind::StructFielDoesntExist { field, struct_name } => error!(
+                "{}:{}:{}: Field {} does not exist in struct {}",
                 file_path, e.span.start_line, e.span.start_column, field, struct_name
             ),
             TypeErrorKind::WrongArgCount {
@@ -269,24 +278,29 @@ fn main() {
                 "{}:{}:{}: Unreachable code after returning from procedure",
                 file_path, e.span.start_line, e.span.start_column,
             ),
+            TypeErrorKind::MissingField { field } => error!(
+                "{}:{}:{}: Missing field {} in struct literal",
+                file_path, e.span.start_line, e.span.start_column, field
+            ),
         }
     }
 
     let compile_end = SystemTime::now();
-    let duration = compile_end
-        .duration_since(compile_start)
-        .unwrap()
-        .as_secs_f64();
+
+    let Ok(duration) = compile_end.duration_since(compile_start) else {
+        error!("Duration failed");
+        exit(1);
+    };
 
     if args.symbols {
         println!("Structs");
-        for (name, fields) in typer.structs.iter() {
-            println!("    - {:?} {:?}", name, fields);
+        for (name, decl) in typer.table.structs.iter() {
+            println!("    - {:?} {:?}", name, decl);
         }
 
         println!("Procs");
-        for (name, (params, ret_ty)) in typer.procs.iter() {
-            println!("    - {:?} {:?} {:?}", name, params, ret_ty);
+        for (name, decl) in typer.table.procs.iter() {
+            println!("    - {:?} {:?}", name, decl);
         }
         println!();
     }
@@ -301,11 +315,11 @@ fn main() {
     }
 
     if args.time {
-        println!("Compiled in {}s", duration);
+        println!("Compiled in {}s", duration.as_secs_f64());
     }
 
-    println!("=========================\n");
-    let mut evaluator = Evaluator::new();
+    println!("===================================\n");
+    let mut evaluator = Evaluator::new(typer.table);
     let result = evaluator.eval_program(&typer.program);
     match result {
         Ok(_) => {}

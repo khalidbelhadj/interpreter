@@ -1,7 +1,7 @@
 List :: struct {
     size int,
     cap int,
-    data [float]
+    data [float],
 }
 
 list_new :: () List {
@@ -20,17 +20,19 @@ list_push :: (l &List, value float) unit {
         return;
     }
 
-    let old_cap int = l.cap;
-    l.cap = l.cap * 2;
-    let new_data [float] = #array(float, l.cap);
+    // Increase the capacity
+    let new_cap int = l.cap * 2;
+    let new_data [float] = #array(float, new_cap);
 
-    for i in #range(old_cap) {
+    for i in #range(l.cap) {
         new_data[i] = l.data[i];
     }
-
     l.data = new_data;
+    l.cap = new_cap;
 
-    list_push(l, value);
+    l.data[l.size] = value;
+    l.size = l.size + 1;
+    
 }
 
 main :: () unit {
@@ -43,4 +45,6 @@ main :: () unit {
         }
         #print(l.data);
     }
+
+    let t (float, int)
 }

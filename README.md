@@ -198,6 +198,7 @@ This is a multi line comment
 - [x] Default values
     - Figure out what the default value of things are
     - Assign default value for struct fields
+- [ ] Make fields optional in struct fields
 - [ ] Negative numbers
 - [ ] Fixed precision numbers like u32, i64 and so on
 - [ ] Make strings more concrete, array of chars? How do we represent them?

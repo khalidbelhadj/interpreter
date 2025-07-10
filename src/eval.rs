@@ -1,7 +1,6 @@
-use log::error;
-
 use crate::ast::*;
 use crate::token::*;
+use crate::typer::SymbolTable;
 use std::array;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -139,81 +138,71 @@ impl StackFrame {
 
 pub struct Evaluator {
     call_stack: Vec<StackFrame>,
-    functions: HashMap<String, ProcDecl>,
-    structs: HashMap<String, StructDecl>,
+    table: SymbolTable,
 }
 
 impl Evaluator {
-    pub fn new() -> Self {
+    pub fn new(table: SymbolTable) -> Self {
         Evaluator {
             call_stack: Vec::new(),
-            functions: HashMap::new(),
-            structs: HashMap::new(),
+            table,
         }
     }
 
-    fn value_from_type(&mut self, ty: Type) -> Value {
+    fn value_from_type(&mut self, ty: Type) -> Result<Value, String> {
         match ty {
-            Type::Unit => Value::Unit,
-            Type::Int => Value::Int(0),
-            Type::Float => Value::Float(0.0),
-            Type::Str => Value::Str("".to_string()),
-            Type::Bool => Value::Bool(false),
+            Type::Unit => Ok(Value::Unit),
+            Type::Int => Ok(Value::Int(0)),
+            Type::Float => Ok(Value::Float(0.0)),
+            Type::Str => Ok(Value::Str("".to_string())),
+            Type::Bool => Ok(Value::Bool(false)),
             Type::Struct(s) => {
-                let struct_decl = self.structs.get_mut(&s);
-                if struct_decl.is_none() {
-                    panic!("no proc decl of this type");
-                }
+                let Some(struct_decl) = self.table.structs.get_mut(&s) else {
+                    return Err("No struct".to_string());
+                };
 
-                let struct_decl = struct_decl.unwrap();
                 let mut map = HashMap::new();
 
                 for (k, v) in struct_decl.fields.clone().iter() {
                     match &v.1 {
                         Some(expr) => {
-                            let value = Value::new_ref(self.eval_expr(&expr).unwrap());
+                            let value = Value::new_ref(self.eval_expr(expr)?);
                             map.insert(k.to_string(), value);
                         }
                         None => {
-                            let value = Value::new_ref(self.value_from_type(v.0.clone()));
+                            let value = Value::new_ref(self.value_from_type(v.0.clone())?);
                             map.insert(k.to_string(), value);
                         }
                     }
                 }
-                Value::Struct(map)
+                Ok(Value::Struct(map))
             }
             Type::Array(ty, array_length) => match array_length {
-                ArrayLength::Fixed(length) => Value::Array(
-                    (0..length)
-                        .map(|i| Value::new_ref(self.value_from_type(*ty.clone())))
-                        .collect(),
-                ),
-                ArrayLength::Dynamic => Value::Array(Vec::new()),
+                ArrayLength::Fixed(length) => {
+                    let mut result = Vec::new();
+                    for _ in 0..length {
+                        let r = self.value_from_type(*ty.clone())?;
+                        result.push(Value::new_ref(r));
+                    }
+                    Ok(Value::Array(result))
+                }
+                ArrayLength::Dynamic => Ok(Value::Array(Vec::new())),
             },
             Type::Ref(_) => unreachable!(),
         }
     }
 
     pub fn current_frame(&mut self) -> Result<&mut StackFrame, String> {
-        self.call_stack.last_mut().ok_or("bruh".to_string())
+        self.call_stack
+            .last_mut()
+            .ok_or("No stack frame".to_string())
     }
 
     pub fn eval_program(&mut self, program: &Program) -> Result<Value, String> {
-        for top_level in program {
-            match top_level {
-                TopLevel::StructDecl(decl) => {
-                    self.structs.insert(decl.name.clone(), decl.clone());
-                }
-                TopLevel::ProcDecl(decl) => {
-                    self.functions.insert(decl.name.clone(), decl.clone());
-                }
-            }
-        }
-
-        if let Some(main_func) = self.functions.get("main").cloned() {
+        println!("{:#?}", self.table);
+        if let Some(main_func) = self.table.procs.get("main").cloned() {
             self.call_proc(&main_func, vec![])
         } else {
-            error!("No main program");
             Err("No main program".to_string())
         }
     }
@@ -223,7 +212,7 @@ impl Evaluator {
             Expr::Var { name, .. } => self
                 .current_frame()?
                 .lookup(name)
-                .ok_or_else(|| format!("lvalue_ref: Variable '{}' not found", name)),
+                .ok_or_else(|| format!("Variable '{}' not found", name)),
             Expr::Proj { expr, field, .. } => {
                 let base_ref = self.get_lvalue_ref(expr)?;
                 let base_value = base_ref.borrow();
@@ -345,7 +334,7 @@ impl Evaluator {
                 block,
                 ..
             } => {
-                if let Expr::Call { name, args, span } = range {
+                if let Expr::Call(Call { name, args, span }) = range {
                     if name != "#range" {
                         return Err("For loop only with #range".to_string());
                     }
@@ -381,48 +370,50 @@ impl Evaluator {
 
                 Ok(None)
             }
-
-            Stmt::Call { name, args, .. } => {
-                if name == "#print" {
-                    for (i, arg) in args.iter().enumerate() {
-                        let value = self.eval_expr(arg)?;
-                        print!("{}", value);
-                        if i < args.len() - 1 {
-                            print!(" ");
-                        }
-                    }
-                    println!();
-                    return Ok(None);
-                }
-
-                if name == "#length" {
-                    if args.len() != 1 {
-                        return Err(format!("Wrong number of arguments provided to #length"));
-                    }
-
-                    let arg = args[0].clone();
-                    let value = self.eval_expr(&arg)?;
-                    return match value {
-                        Value::Array(inner) => Ok(Some(Value::Int(inner.len() as i64))),
-                        Value::Str(inner) => Ok(Some(Value::Int(inner.len() as i64))),
-                        _ => Err("Cannot find length of argument".to_string()),
-                    };
-                }
-
-                let arg_values = self.eval_args(args)?;
-                if let Some(func) = self.functions.get(name).cloned() {
-                    self.call_proc(&func, arg_values)?;
-                } else {
-                    return Err(format!("Procedure '{}' not found", name));
-                }
-                Ok(None)
-            }
-
+            Stmt::Call(call) => self.eval_call(call),
             Stmt::Ret { expr, .. } => {
                 let return_value = self.eval_expr(expr)?;
                 Ok(Some(return_value))
             }
         }
+    }
+
+    pub fn eval_call(&mut self, call: &Call) -> Result<Option<Value>, String> {
+        let Call { name, args, .. } = call;
+
+        if name == "#print" {
+            for (i, arg) in args.iter().enumerate() {
+                let value = self.eval_expr(arg)?;
+                print!("{}", value);
+                if i < args.len() - 1 {
+                    print!(" ");
+                }
+            }
+            println!();
+            return Ok(None);
+        }
+
+        if name == "#length" {
+            if args.len() != 1 {
+                return Err("Wrong number of arguments provided to #length".to_string());
+            }
+
+            let arg = args[0].clone();
+            let value = self.eval_expr(&arg)?;
+            return match value {
+                Value::Array(inner) => Ok(Some(Value::Int(inner.len() as i64))),
+                Value::Str(inner) => Ok(Some(Value::Int(inner.len() as i64))),
+                _ => Err("Cannot find length of argument".to_string()),
+            };
+        }
+
+        let arg_values = self.eval_args(args)?;
+        if let Some(func) = self.table.procs.get(name).cloned() {
+            self.call_proc(&func, arg_values)?;
+        } else {
+            return Err(format!("Procedure '{}' not found", name));
+        }
+        Ok(None)
     }
 
     pub fn eval_block(&mut self, block: &Block) -> Result<Option<Value>, String> {
@@ -450,7 +441,7 @@ impl Evaluator {
                     Value::Int(i) => Ok(self.value_from_type(Type::Array(
                         Box::new(ty.clone()),
                         ArrayLength::Fixed(i as usize),
-                    ))),
+                    ))?),
                     _ => Err("bruh".to_string()),
                 }
             }
@@ -458,7 +449,7 @@ impl Evaluator {
                 let value_ref = self
                     .current_frame()?
                     .lookup(name)
-                    .ok_or_else(|| format!("eval_expr: Variable '{}' not found", name))?;
+                    .ok_or_else(|| format!("Variable '{}' not found", name))?;
                 let x = Ok(value_ref.borrow().clone());
                 x
             }
@@ -466,28 +457,7 @@ impl Evaluator {
                 self.eval_binary_op(*lhs.clone(), op.clone(), *rhs.clone())
             }
             Expr::Unary { op, rhs, span } => self.eval_unary_op(op.clone(), *rhs.clone()),
-            Expr::Call { name, args, .. } => {
-                if name == "#length" {
-                    if args.len() != 1 {
-                        return Err(format!("Wrong number of arguments provided to #length"));
-                    }
-
-                    let arg = args[0].clone();
-                    let value = self.eval_expr(&arg)?;
-                    return match value {
-                        Value::Array(inner) => Ok(Value::Int(inner.len() as i64)),
-                        Value::Str(inner) => Ok(Value::Int(inner.len() as i64)),
-                        _ => Err("Cannot find length of argument".to_string()),
-                    };
-                }
-
-                let arg_values = self.eval_args(args)?;
-                if let Some(func) = self.functions.get(name).cloned() {
-                    self.call_proc(&func, arg_values)
-                } else {
-                    Err(format!("Function '{}' not found", name))
-                }
-            }
+            Expr::Call(call) => self.eval_call(call).map(|x| x.unwrap_or(Value::Unit)),
             Expr::Proj { expr, field, .. } => {
                 let base_value = self.eval_expr(expr)?;
                 match base_value {
@@ -667,11 +637,5 @@ impl Evaluator {
                 left_val, op, right_val
             )),
         }
-    }
-}
-
-impl Default for Evaluator {
-    fn default() -> Self {
-        Self::new()
     }
 }

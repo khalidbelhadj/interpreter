@@ -1,19 +1,31 @@
 use core::{error, panic};
 use std::{
     collections::HashMap,
-    fmt::{write, Display},
+    fmt::{write, Debug, Display},
     process::exit,
 };
 
 use crate::token::*;
 use log::{debug, error};
 
-pub type Program = Vec<TopLevel>;
+#[derive(Debug, Clone)]
+pub struct Program {
+    pub top_levels: Vec<TopLevel>,
+}
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum TopLevel {
     StructDecl(StructDecl),
     ProcDecl(ProcDecl),
+}
+
+impl Display for TopLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TopLevel::StructDecl(struct_decl) => write!(f, "{struct_decl:#?}"),
+            TopLevel::ProcDecl(proc_decl) => write!(f, "{proc_decl:#?}"),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -73,15 +85,11 @@ pub enum Stmt {
         block: Block,
         span: Span,
     },
-    Call {
-        name: String,
-        args: Vec<Expr>,
-        span: Span,
-    },
     Ret {
         expr: Expr,
         span: Span,
     },
+    Call(Call),
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -103,11 +111,6 @@ pub enum Expr {
         rhs: Box<Expr>,
         span: Span,
     },
-    Call {
-        name: String,
-        args: Vec<Expr>,
-        span: Span,
-    },
     MakeArray {
         ty: Type,
         expr: Box<Expr>,
@@ -123,8 +126,16 @@ pub enum Expr {
         index: Box<Expr>,
         span: Span,
     },
+    Call(Call),
     Ref(Box<Expr>),
     Deref(Box<Expr>),
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct Call {
+    pub name: String,
+    pub args: Vec<Expr>,
+    pub span: Span,
 }
 
 impl Display for BinaryOp {
@@ -181,7 +192,7 @@ impl Display for Expr {
             Expr::Unary { op, rhs, span } => {
                 write!(f, "{}{}", op, rhs)
             }
-            Expr::Call { name, args, .. } => {
+            Expr::Call(Call { name, args, .. }) => {
                 write!(f, "{}(", name)?;
                 for (i, arg) in args.iter().enumerate() {
                     if i > 0 {
@@ -235,7 +246,7 @@ pub enum ArrayLength {
     Dynamic,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum Lit {
     Int(i64, Span),
     Float(f64, Span),
@@ -243,6 +254,19 @@ pub enum Lit {
     Bool(bool, Span),
     Struct(HashMap<String, Expr>, Span),
     Array(Vec<Expr>, Span),
+}
+
+impl Debug for Lit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Lit::Int(i, span) => write!(f, "{i}"),
+            Lit::Float(fl, span) => write!(f, "{fl}"),
+            Lit::Str(s, span) => write!(f, "{s}"),
+            Lit::Bool(b, span) => write!(f, "{b}"),
+            Lit::Struct(hash_map, span) => write!(f, "{hash_map:#?}"),
+            Lit::Array(vec, span) => write!(f, "{vec:#?}"),
+        }
+    }
 }
 
 impl PartialEq for Lit {
@@ -301,19 +325,19 @@ impl Expr {
         !self.is_lvalue()
     }
 
-    pub fn span(&self) -> &Span {
+    pub fn span(&self) -> Span {
         match self {
-            Expr::Unit(span) => span,
+            Expr::Unit(span) => *span,
             Expr::Ref(expr) => expr.span(),
             Expr::Deref(expr) => expr.span(),
-            Expr::Var { name, span } => span,
-            Expr::Binary { span, .. } => span,
-            Expr::Unary { span, .. } => span,
-            Expr::Call { span, .. } => span,
-            Expr::Proj { span, .. } => span,
-            Expr::Index { span, .. } => span,
-            Expr::Lit(lit) => lit.span(),
-            Expr::MakeArray { span, .. } => span,
+            Expr::Var { name, span } => *span,
+            Expr::Binary { span, .. } => *span,
+            Expr::Unary { span, .. } => *span,
+            Expr::Call(Call { span, .. }) => *span,
+            Expr::Proj { span, .. } => *span,
+            Expr::Index { span, .. } => *span,
+            Expr::Lit(lit) => *lit.span(),
+            Expr::MakeArray { span, .. } => *span,
         }
     }
 }
@@ -328,7 +352,7 @@ impl Stmt {
             Stmt::IfElse { span, .. } => span,
             Stmt::While { span, .. } => span,
             Stmt::For { span, .. } => span,
-            Stmt::Call { span, .. } => span,
+            Stmt::Call(Call { span, .. }) => span,
             Stmt::Ret { span, .. } => span,
         }
     }
@@ -453,7 +477,7 @@ pub enum TypeErrorKind {
 
     // Other
     ScopeNotDefined,
-    StructFielNotFound {
+    StructFielDoesntExist {
         field: String,
         struct_name: String,
     },
@@ -464,6 +488,9 @@ pub enum TypeErrorKind {
     },
     NotAbleToInferType,
     UnreachableCodeAfterReturn,
+    MissingField {
+        field: String,
+    },
 }
 
 pub enum TypeSet {

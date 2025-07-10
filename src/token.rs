@@ -1,7 +1,7 @@
 use core::default::Default;
 use log::error;
 use std::{
-    fmt::{write, Display},
+    fmt::{write, Debug, Display},
     process::exit,
 };
 
@@ -62,6 +62,7 @@ pub enum TokenType {
     FloatLiteral(f64),
     EOF,
 }
+
 impl PartialEq for TokenType {
     fn eq(&self, other: &TokenType) -> bool {
         match (self, other) {
@@ -179,12 +180,20 @@ impl Display for TokenType {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(PartialEq, Eq, Clone)]
 pub struct Span {
     pub start_line: usize,
     pub start_column: usize,
     pub end_line: usize,
     pub end_column: usize,
+}
+
+impl Copy for Span {}
+
+impl Debug for Span {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "X")
+    }
 }
 
 impl Span {

@@ -1,18 +1,13 @@
-B :: struct {
-    a int = add(69, 420)
+callee :: () unit {
+    #print(a);
 }
 
-A :: struct {
-    b B
-}
 
-add :: (a int, b int) int {
-    let sum int = a + b;
-    return sum;
+caller :: () unit {
+    let a int = 10;
+    callee();
 }
-
 
 main :: () unit {
-    let ys [A] = #array(A, 10);
-    #print(ys);
+    caller();
 }

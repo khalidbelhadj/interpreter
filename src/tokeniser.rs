@@ -71,10 +71,7 @@ impl Tokeniser {
     fn advance(&mut self) -> char {
         self.curr_col += 1;
         self.curr += 1;
-        self.source
-            .chars()
-            .nth(self.curr - 1)
-            .expect("Failed to advance")
+        self.source.chars().nth(self.curr - 1).unwrap_or('\0')
     }
 
     fn peek(&self) -> char {
@@ -306,24 +303,23 @@ impl Tokeniser {
                     }
 
                     if has_dot {
-                        let f: Option<f64> = number.parse().ok();
-                        if f.is_none() {
+                        let Ok(f) = number.parse() else {
                             return Err(LexicalError {
                                 span: self.span(),
                                 kind: LexicalErrorKind::InvalidFloat,
                             });
-                        }
-                        self.add_token(TokenType::FloatLiteral(f.unwrap()));
+                        };
+
+                        self.add_token(TokenType::FloatLiteral(f));
                         Ok(())
                     } else {
-                        let n: Option<i64> = number.parse().ok();
-                        if n.is_none() {
+                        let Ok(n) = number.parse() else {
                             return Err(LexicalError {
                                 span: self.span(),
                                 kind: LexicalErrorKind::InvalidInt,
                             });
-                        }
-                        self.add_token(TokenType::IntegerLiteral(n.unwrap()));
+                        };
+                        self.add_token(TokenType::IntegerLiteral(n));
                         Ok(())
                     }
                 } else if c.is_alphabetic() {
