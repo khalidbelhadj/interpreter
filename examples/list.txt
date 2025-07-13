@@ -45,6 +45,4 @@ main :: () unit {
         }
         #print(l.data);
     }
-
-    let t (float, int)
 }

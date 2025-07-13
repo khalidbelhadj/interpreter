@@ -1,7 +1,15 @@
-callee :: () unit {
-    #print(a);
+Point :: struct {
+    x int,
+    y int,
 }
 
+callee :: () unit {
+    #print("hello");
+}
+
+_my_proc :: () unit {
+
+}
 
 caller :: () unit {
     let a int = 10;

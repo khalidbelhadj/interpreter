@@ -410,14 +410,14 @@ impl Typer {
 
     fn type_check_expr(&mut self, expr: &Expr, target: &Type) {
         match (expr, target) {
-            (Expr::Var { name, span }, Type::Array(elem_ty, size)) => {
+            (Expr::Var { name, span }, Type::Array(elem_ty, expected_size)) => {
                 let Some(actual_ty) = self.type_infer(expr) else {
                     return;
                 };
 
                 match actual_ty {
-                    Type::Array(ty, s) => {
-                        match (size, s) {
+                    Type::Array(ty, actual_size) => {
+                        match (expected_size, actual_size) {
                             (ArrayLength::Dynamic, ArrayLength::Dynamic) => {
                                 // do nothing
                             }
@@ -436,6 +436,7 @@ impl Typer {
                                 }
                             }
                             (ArrayLength::Fixed(s), ArrayLength::Dynamic) => {
+                                // TODO: manage expected fixed given dynamic
                                 todo!()
                             }
                         }
@@ -444,7 +445,7 @@ impl Typer {
                         self.add_error(
                             *span,
                             TypeErrorKind::UnexpectedType {
-                                expected: Type::Array(elem_ty.clone(), size.clone()),
+                                expected: Type::Array(elem_ty.clone(), expected_size.clone()),
                                 actual: actual_ty.clone(),
                             },
                         );

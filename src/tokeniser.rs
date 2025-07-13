@@ -322,7 +322,7 @@ impl Tokeniser {
                         self.add_token(TokenType::IntegerLiteral(n));
                         Ok(())
                     }
-                } else if c.is_alphabetic() {
+                } else if c.is_alphabetic() || c == '_' {
                     let mut identifier = c.to_string();
                     while self.peek().is_alphanumeric() || self.peek() == '_' {
                         identifier.push(self.advance());

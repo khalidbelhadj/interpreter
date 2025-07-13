@@ -86,7 +86,7 @@ if x > 5 {
 
 ### Loops
 
-Loops are done using the `while` and `for` keywords. The `for` keyword is used to iterate over a range of numbers. Iterators would be cool in the future.
+Loops are done using the `while` and `for` keywords. The `for` keyword is used to iterate over a range of numbers. Use the `#range` directive to iterate over a specified range. If a single argument is provided, the iteration goes from 0 to the value, if two are provided then it goes from the first to the second.
 
 ```
 while x < 10 {
@@ -94,7 +94,7 @@ while x < 10 {
     x = x + 1;
 }
 
-,,r i in #range(0, 10) {
+for i in #range(0, 10) {
     #print(i);
 }
 
@@ -110,7 +110,7 @@ Arrays are the main primitive for contiguous memory. They are defined using `[]`
 ```
 sum :: (xs [int]) int {
     let sum int = 0;
-    for i in 0..5 {
+    for i in #range(5) {
         sum = sum + xs[i];
     }
     return sum;
@@ -198,10 +198,14 @@ This is a multi line comment
 - [x] Default values
     - Figure out what the default value of things are
     - Assign default value for struct fields
+- [x] Allow identifiers that start with underscore
+- [ ] Fix type checking to use an actual stack
 - [ ] Make fields optional in struct fields
 - [ ] Negative numbers
 - [ ] Fixed precision numbers like u32, i64 and so on
-- [ ] Make strings more concrete, array of chars? How do we represent them?
+- [ ] Make strings more concrete
+    - array of chars? How do we represent them?
+    - multiline, special chars, utf-8 or whatever
 - [ ] Tuples
 - [ ] Variants
     - Enums

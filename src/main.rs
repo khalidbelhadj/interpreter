@@ -18,61 +18,12 @@ use ansi_term::Color;
 use clap::ArgAction;
 use clap::Parser;
 use env_logger::{Builder, Env};
+use log::debug;
 use log::error;
 use log::Level;
 use std::io::Write;
 use std::process::exit;
 use std::time::SystemTime;
-
-#[derive(clap::Parser, Debug)]
-#[command(name = "interpreter")]
-struct Args {
-    /// Enable token parsing
-    #[arg(long, action = ArgAction::Set, default_value_t = false)]
-    tokens: bool,
-
-    /// Enable AST parsing
-    #[arg(long, action = ArgAction::Set, default_value_t = false)]
-    ast: bool,
-
-    /// Input file name
-    #[arg(value_name = "FILE")]
-    file_name: String,
-
-    /// Enable symbol parsing
-    #[arg(long, action = ArgAction::Set, default_value_t = false)]
-    symbols: bool,
-
-    /// Enable timing (default: true)
-    #[arg(long, action = ArgAction::Set, default_value_t = true)]
-    time: bool,
-}
-
-fn init_logger() {
-    Builder::from_env(Env::default().default_filter_or("debug"))
-        .format(|buf, record| {
-            // Set the module name and level
-            let module = record.module_path().unwrap_or("<unknown>");
-            let level = record.level();
-
-            // Colorize the log level
-            let colored_level = match level {
-                Level::Error => Color::Red.paint(level.to_string().to_lowercase()),
-                Level::Warn => Color::Yellow.paint(level.to_string().to_lowercase()),
-                Level::Debug => Color::Blue.paint(level.to_string().to_lowercase()),
-                Level::Info => Color::Green.paint(level.to_string().to_lowercase()),
-                Level::Trace => Color::White.paint(level.to_string().to_lowercase()),
-            };
-
-            // Extract file and line information
-            let file = record.file().unwrap_or("<unknown>");
-            let line = record.line().map_or(0, |l| l);
-
-            // Format the log message with module, file:line, level, and message
-            writeln!(buf, "[{}]{}", colored_level, record.args())
-        })
-        .init();
-}
 
 fn main() {
     init_logger();
@@ -194,12 +145,12 @@ fn main() {
         match &e.kind {
             TypeErrorKind::UnexpectedReturnType { expected, actual } => {
                 error!(
-                    "{}:{}:{}: Expected return type {}, got {}",
+                    "{}:{}:{}: Mismatched return types\n    Expected: {}\n    Actual  : {}",
                     file_path, e.span.start_line, e.span.start_column, expected, actual
                 )
             }
             TypeErrorKind::UnexpectedType { expected, actual } => error!(
-                "{}:{}:{}: Expected type {}, got {}",
+                "{}:{}:{}: Mismatched types\n    Expected: {}\n    Actual  : {}",
                 file_path, e.span.start_line, e.span.start_column, expected, actual
             ),
             TypeErrorKind::UnexpectedArrayLength { expected, actual } => error!(
@@ -324,7 +275,57 @@ fn main() {
     match result {
         Ok(_) => {}
         Err(e) => {
-            println!("{e}");
+            debug!("{e}");
         }
     }
+}
+
+#[derive(clap::Parser, Debug)]
+#[command(name = "interpreter")]
+struct Args {
+    /// Enable token parsing
+    #[arg(long, action = ArgAction::Set, default_value_t = false)]
+    tokens: bool,
+
+    /// Enable AST parsing
+    #[arg(long, action = ArgAction::Set, default_value_t = false)]
+    ast: bool,
+
+    /// Input file name
+    #[arg(value_name = "FILE")]
+    file_name: String,
+
+    /// Enable symbol parsing
+    #[arg(long, action = ArgAction::Set, default_value_t = false)]
+    symbols: bool,
+
+    /// Enable timing (default: true)
+    #[arg(long, action = ArgAction::Set, default_value_t = true)]
+    time: bool,
+}
+
+fn init_logger() {
+    Builder::from_env(Env::default().default_filter_or("debug"))
+        .format(|buf, record| {
+            // Set the module name and level
+            let module = record.module_path().unwrap_or("<unknown>");
+            let level = record.level();
+
+            // Colorize the log level
+            let colored_level = match level {
+                Level::Error => Color::Red.paint(level.to_string().to_lowercase()),
+                Level::Warn => Color::Yellow.paint(level.to_string().to_lowercase()),
+                Level::Debug => Color::Blue.paint(level.to_string().to_lowercase()),
+                Level::Info => Color::Green.paint(level.to_string().to_lowercase()),
+                Level::Trace => Color::White.paint(level.to_string().to_lowercase()),
+            };
+
+            // Extract file and line information
+            let file = record.file().unwrap_or("<unknown>");
+            let line = record.line().map_or(0, |l| l);
+
+            // Format the log message with module, file:line, level, and message
+            writeln!(buf, "[{}] {}", colored_level, record.args())
+        })
+        .init();
 }

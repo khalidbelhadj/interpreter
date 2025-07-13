@@ -199,7 +199,6 @@ impl Evaluator {
     }
 
     pub fn eval_program(&mut self, program: &Program) -> Result<Value, String> {
-        println!("{:#?}", self.table);
         if let Some(main_func) = self.table.procs.get("main").cloned() {
             self.call_proc(&main_func, vec![])
         } else {
