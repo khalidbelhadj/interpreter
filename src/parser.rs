@@ -577,8 +577,27 @@ impl Parser {
                 self.advance();
                 let rhs = self.parse_prefix(is_condition)?;
 
+                // TODO: Empty span
                 return Ok(Expr::Unary {
                     op: UnaryOp::Not,
+                    rhs: Box::new(rhs),
+                    span: Span::empty(),
+                });
+            }
+            Minus => {
+                self.advance();
+                let rhs = self.parse_prefix(is_condition)?;
+                return Ok(Expr::Unary {
+                    op: UnaryOp::Minus,
+                    rhs: Box::new(rhs),
+                    span: Span::empty(),
+                });
+            }
+            Plus => {
+                self.advance();
+                let rhs = self.parse_prefix(is_condition)?;
+                return Ok(Expr::Unary {
+                    op: UnaryOp::Plus,
                     rhs: Box::new(rhs),
                     span: Span::empty(),
                 });
@@ -688,6 +707,7 @@ impl Parser {
                             let expr = self.parse_expr()?;
                             self.consume(TokenType::RightParen)?;
 
+                            // TODO: Empty span
                             return Ok(Expr::MakeArray {
                                 ty,
                                 expr: Box::new(expr),
@@ -720,6 +740,7 @@ impl Parser {
                         let fields = self.parse_struct_literal()?;
                         let end_span = self.peek_span();
                         Ok(Expr::Lit(Lit::Struct(
+                            name,
                             fields,
                             Span::join(start_span, end_span),
                         )))

@@ -162,6 +162,8 @@ impl Display for UnaryOp {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let op_str = match self {
             UnaryOp::Not => "not",
+            UnaryOp::Minus => "minus",
+            UnaryOp::Plus => "plus",
         };
         write!(f, "{}", op_str)
     }
@@ -174,7 +176,7 @@ impl Display for Lit {
             Lit::Float(n, _) => write!(f, "{}", n),
             Lit::Str(s, _) => write!(f, "\"{}\"", s),
             Lit::Bool(b, _) => write!(f, "{}", b),
-            Lit::Struct(s, _) => write!(f, "{:?}", s),
+            Lit::Struct(n, s, _) => write!(f, "{:?}", s),
             Lit::Array(a, _) => write!(f, "{:?}", a),
         }
     }
@@ -252,7 +254,7 @@ pub enum Lit {
     Float(f64, Span),
     Str(String, Span),
     Bool(bool, Span),
-    Struct(HashMap<String, Expr>, Span),
+    Struct(String, HashMap<String, Expr>, Span),
     Array(Vec<Expr>, Span),
 }
 
@@ -263,7 +265,7 @@ impl Debug for Lit {
             Lit::Float(fl, span) => write!(f, "{fl}"),
             Lit::Str(s, span) => write!(f, "{s}"),
             Lit::Bool(b, span) => write!(f, "{b}"),
-            Lit::Struct(hash_map, span) => write!(f, "{hash_map:#?}"),
+            Lit::Struct(name, hash_map, span) => write!(f, "{hash_map:#?}"),
             Lit::Array(vec, span) => write!(f, "{vec:#?}"),
         }
     }
@@ -282,6 +284,8 @@ impl Eq for Lit {}
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum UnaryOp {
     Not,
+    Minus,
+    Plus,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
@@ -365,7 +369,7 @@ impl Lit {
             Lit::Float(_, span) => span,
             Lit::Str(_, span) => span,
             Lit::Bool(_, span) => span,
-            Lit::Struct(hash_map, span) => span,
+            Lit::Struct(name, hash_map, span) => span,
             Lit::Array(exprs, span) => span,
         }
     }
@@ -477,7 +481,7 @@ pub enum TypeErrorKind {
 
     // Other
     ScopeNotDefined,
-    StructFielDoesntExist {
+    StructFieldMissingInLiteral {
         field: String,
         struct_name: String,
     },

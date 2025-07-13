@@ -35,8 +35,15 @@ impl Default for SymbolTable {
 
 type Scope = HashMap<String, Type>;
 
-struct ProcScope {
+#[derive(Debug)]
+pub struct ProcScope {
     scopes: Vec<Scope>,
+}
+
+impl ProcScope {
+    fn new() -> ProcScope {
+        ProcScope { scopes: Vec::new() }
+    }
 }
 
 pub struct Typer {
@@ -49,15 +56,13 @@ pub struct Typer {
 
 impl Typer {
     pub fn new(program: Program, file_path: String) -> Self {
-        let mut typer = Typer {
+        Typer {
             program,
             scopes: Vec::new(),
             table: SymbolTable::new(),
             file_path,
             errors: Vec::new(),
-        };
-        typer.enter_scope();
-        typer
+        }
     }
 
     pub fn type_check(&mut self) {
@@ -104,7 +109,7 @@ impl Typer {
                 self.add_proc(decl);
 
                 // Check if the procedure body produces the correct return type
-                self.type_check_block(param_types.clone(), &decl.block, decl.ret_ty.clone());
+                self.type_check_proc(param_types.clone(), &decl.block, decl.ret_ty.clone());
             }
             TopLevel::StructDecl(decl) => {
                 self.add_struct(decl);
@@ -118,9 +123,10 @@ impl Typer {
             Some(decl) => match decl.fields.get(&field) {
                 Some(ty) => Some(ty.0.clone()),
                 None => {
+                    // TODO: Empty span
                     self.add_error(
                         Span::empty(),
-                        TypeErrorKind::StructFielDoesntExist {
+                        TypeErrorKind::StructFieldMissingInLiteral {
                             field: field.clone(),
                             struct_name: decl.name.clone(),
                         },
@@ -129,6 +135,7 @@ impl Typer {
                 }
             },
             None => {
+                // TODO: Empty span
                 self.add_error(Span::empty(), TypeErrorKind::StructNotDefined);
                 None
             }
@@ -202,21 +209,7 @@ impl Typer {
                     }
                 }
             }
-            Expr::Var { name, span } => {
-                // TODO: This still type checks things which aren't in scope
-                // For example, things which are in the callees scope. We need
-                // an approach which does the same thing as the evaluator. Maybe
-                // the evaluator and typer need to be more interlinked,
-                // even for default values on struct literals
-                for scope in self.scopes.iter().rev() {
-                    if let Some(ty) = scope.get(name) {
-                        return Some(ty.clone());
-                    }
-                }
-
-                self.add_error(*span, TypeErrorKind::VarNotDefined);
-                None
-            }
+            Expr::Var { name, span } => self.lookup(name.to_string()),
             Expr::Deref(expr) => {
                 let inner_ty = self.type_infer(expr);
                 match inner_ty {
@@ -232,6 +225,16 @@ impl Typer {
                     self.type_check_expr(rhs, &Type::Bool);
                     Some(Type::Bool)
                 }
+                UnaryOp::Minus => match self.type_infer(rhs) {
+                    Some(Type::Int) => Some(Type::Int),
+                    Some(Type::Float) => Some(Type::Float),
+                    Some(ty) => {
+                        self.add_error(*span, TypeErrorKind::ArithWithNonNumber { ty });
+                        None
+                    }
+                    _ => None,
+                },
+                UnaryOp::Plus => todo!(),
             },
             Expr::Binary { lhs, op, rhs, span } => {
                 if op.is_logical() {
@@ -268,6 +271,10 @@ impl Typer {
         }
     }
 
+    fn type_check_proc(&mut self, args: Vec<(String, Type)>, block: &Block, ret_ty: Type) {
+        self.type_check_block(args, block, ret_ty);
+    }
+
     fn type_check_block(
         &mut self,
         scope: Vec<(String, Type)>,
@@ -277,7 +284,7 @@ impl Typer {
         self.enter_scope();
 
         for (name, ty) in scope.iter() {
-            self.add_var(name, ty.clone());
+            self.define(name, ty.clone());
         }
 
         let mut has_returned = false;
@@ -298,7 +305,7 @@ impl Typer {
                     span,
                 } => {
                     self.type_check_expr(expr, ty);
-                    self.add_var(name, ty.clone());
+                    self.define(name, ty.clone());
                 }
                 Stmt::Assign { lhs, rhs, span } => {
                     let Some(lhs_ty) = self.type_infer(lhs) else {
@@ -308,6 +315,13 @@ impl Typer {
                 }
                 Stmt::Call(Call { name, args, span }) => {
                     if name == "#print" {
+                        for arg in args.iter() {
+                            self.type_infer(arg);
+                        }
+                        continue;
+                    }
+
+                    if name == "#stack" {
                         continue;
                     }
 
@@ -466,23 +480,38 @@ impl Typer {
                     );
                 }
             }
-            (Expr::Lit(Lit::Struct(lit, lit_span)), Type::Struct(name)) => {
+            (Expr::Lit(Lit::Struct(lit_name, lit, lit_span)), Type::Struct(name)) => {
+                if lit_name != name {
+                    self.add_error(
+                        *lit_span,
+                        TypeErrorKind::UnexpectedType {
+                            expected: Type::Struct(name.to_string()),
+                            actual: Type::Struct(lit_name.to_string()),
+                        },
+                    );
+                    return;
+                }
+
                 let Some(decl) = self.table.structs.get(name) else {
                     self.add_error(*lit_span, TypeErrorKind::StructNotDefined);
                     return;
                 };
+
+                // TODO: is this clone needed?
                 for (field, (ty, _)) in decl.fields.clone() {
-                    let Some(expr) = lit.get(&field) else {
-                        self.add_error(
-                            *lit_span,
-                            TypeErrorKind::StructFielDoesntExist {
-                                field: field.clone(),
-                                struct_name: name.clone(),
-                            },
-                        );
-                        return;
+                    if let Some(expr) = lit.get(&field) {
+                        self.type_check_expr(expr, &ty);
+                    } else {
+                        // Use default value instead
+
+                        // self.add_error(
+                        //     *lit_span,
+                        //     TypeErrorKind::StructFieldMissingInLiteral {
+                        //         field: field.clone(),
+                        //         struct_name: name.clone(),
+                        //     },
+                        // );
                     };
-                    self.type_check_expr(expr, &ty);
                 }
             }
             (
@@ -633,18 +662,37 @@ impl Typer {
     }
 
     pub fn exit_scope(&mut self) {
-        self.scopes.pop();
-    }
-
-    fn add_var(&mut self, name: &str, ty: Type) {
-        let Some(scope) = self.scopes.last_mut() else {
+        let Some(_) = self.scopes.pop() else {
+            // TODO: Empty span
             self.add_error(Span::empty(), TypeErrorKind::ScopeNotDefined);
             return;
         };
+    }
+
+    fn define(&mut self, name: &str, ty: Type) {
+        let Some(scope) = self.scopes.last_mut() else {
+            // TODO: Empty span
+            self.add_error(Span::empty(), TypeErrorKind::ScopeNotDefined);
+            return;
+        };
+
         if scope.contains_key(name) {
+            // TODO: Empty span
             self.add_error(Span::empty(), TypeErrorKind::VarAlreadyDefined);
             return;
         }
         scope.insert(name.to_string(), ty);
+    }
+
+    fn lookup(&mut self, name: String) -> Option<Type> {
+        for scope in self.scopes.iter().rev() {
+            if let Some(value_ref) = scope.get(&name) {
+                return Some(value_ref.clone());
+            }
+        }
+
+        // TODO: Empty span
+        self.add_error(Span::empty(), TypeErrorKind::VarNotDefined);
+        None
     }
 }

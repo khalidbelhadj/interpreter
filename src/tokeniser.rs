@@ -328,6 +328,19 @@ impl Tokeniser {
                         identifier.push(self.advance());
                     }
 
+                    let alpha: Vec<_> = identifier
+                        .as_bytes()
+                        .iter()
+                        .filter(|x| x.is_ascii_alphabetic())
+                        .collect();
+
+                    if alpha.is_empty() {
+                        return Err(LexicalError {
+                            span: self.span(),
+                            kind: LexicalErrorKind::InvalidIdent { name: identifier },
+                        });
+                    }
+
                     match identifier.as_str() {
                         "struct" => self.add_token(TokenType::Struct),
                         "let" => self.add_token(TokenType::Let),

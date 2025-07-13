@@ -244,6 +244,7 @@ pub enum LexicalErrorKind {
     UnterminatedMultilineComment,
     InvalidFloat,
     InvalidInt,
+    InvalidIdent { name: String },
 }
 
 #[derive(Debug, Clone)]

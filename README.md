@@ -199,9 +199,9 @@ This is a multi line comment
     - Figure out what the default value of things are
     - Assign default value for struct fields
 - [x] Allow identifiers that start with underscore
-- [ ] Fix type checking to use an actual stack
-- [ ] Make fields optional in struct fields
-- [ ] Negative numbers
+- [x] Make fields optional in struct fields
+    - TODO: This was a bit sketchy, maybe go over how types are passed to the evaluator. Might be useful in the future for other things.
+- [x] Negative numbers
 - [ ] Fixed precision numbers like u32, i64 and so on
 - [ ] Make strings more concrete
     - array of chars? How do we represent them?
@@ -214,5 +214,5 @@ This is a multi line comment
 - [ ] Generics
 - [ ] Type inference
 - [ ] Standard library
-  - collections
-  - libc like library
+    - collections
+    - libc like library

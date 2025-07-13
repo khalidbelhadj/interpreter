@@ -1,21 +1,4 @@
-Point :: struct {
-    x int,
-    y int,
-}
-
-callee :: () unit {
-    #print("hello");
-}
-
-_my_proc :: () unit {
-
-}
-
-caller :: () unit {
-    let a int = 10;
-    callee();
-}
-
 main :: () unit {
-    caller();
+    let x int = - 10 + 20;
+    #print(x);
 }

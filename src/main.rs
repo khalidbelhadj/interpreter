@@ -58,6 +58,10 @@ fn main() {
                 "{}:{}:{}: Invalid int literal",
                 file_path, err.span.start_line, err.span.start_column
             ),
+            token::LexicalErrorKind::InvalidIdent { name } => error!(
+                "{}:{}:{}: Invalid identifier \"{}\"",
+                file_path, err.span.start_line, err.span.start_column, name
+            ),
         }
 
         exit(1);
@@ -209,8 +213,8 @@ fn main() {
                 "{}:{}:{}: Scope not defined",
                 file_path, e.span.start_line, e.span.start_column
             ),
-            TypeErrorKind::StructFielDoesntExist { field, struct_name } => error!(
-                "{}:{}:{}: Field {} does not exist in struct {}",
+            TypeErrorKind::StructFieldMissingInLiteral { field, struct_name } => error!(
+                "{}:{}:{}: Missing field \"{}\" in struct literal of type {}",
                 file_path, e.span.start_line, e.span.start_column, field, struct_name
             ),
             TypeErrorKind::WrongArgCount {
