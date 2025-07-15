@@ -1,3 +1,5 @@
+use log::debug;
+
 use crate::ast::*;
 use crate::token::*;
 use crate::typer::SymbolTable;
@@ -8,6 +10,7 @@ use std::fmt::format;
 use std::fmt::Display;
 use std::process::exit;
 use std::rc::Rc;
+use std::time::Duration;
 
 pub struct Evaluator {
     call_stack: Vec<StackFrame>,
@@ -20,6 +23,15 @@ impl Evaluator {
             call_stack: Vec::new(),
             table,
         }
+    }
+
+    fn value_slice(&mut self, ty: Type, size: usize) -> Result<Value, String> {
+        let mut result = Vec::new();
+        for _ in 0..size {
+            let r = self.value_from_type(ty.clone())?;
+            result.push(Value::new_ref(r));
+        }
+        Ok(Value::Slice(result))
     }
 
     fn value_from_type(&mut self, ty: Type) -> Result<Value, String> {
@@ -50,18 +62,16 @@ impl Evaluator {
                 }
                 Ok(Value::Struct(map))
             }
-            Type::Array(ty, array_length) => match array_length {
-                ArrayLength::Fixed(length) => {
-                    let mut result = Vec::new();
-                    for _ in 0..length {
-                        let r = self.value_from_type(*ty.clone())?;
-                        result.push(Value::new_ref(r));
-                    }
-                    Ok(Value::Array(result))
+            Type::Array(ty, size) => {
+                let mut result = Vec::new();
+                for _ in 0..size {
+                    let r = self.value_from_type(*ty.clone())?;
+                    result.push(Value::new_ref(r));
                 }
-                ArrayLength::Dynamic => Ok(Value::Array(Vec::new())),
-            },
+                Ok(Value::Array(result))
+            }
             Type::Ref(_) => unreachable!(),
+            Type::Slice(ty) => self.value_slice(*ty, 0),
         }
     }
 
@@ -115,9 +125,23 @@ impl Evaluator {
                 match (&*base_value, index_value) {
                     (Value::Array(arr), Value::Int(idx)) => {
                         if idx < 0 || idx as usize >= arr.len() {
-                            return Err("Array index out of bounds".to_string());
+                            return Err(format!(
+                                "Array index {} out of bounds for array of length {}",
+                                idx,
+                                arr.len()
+                            ));
                         }
-                        Ok(arr[idx as usize].clone())
+                        Ok(Rc::clone(&arr[idx as usize]))
+                    }
+                    (Value::Slice(arr), Value::Int(idx)) => {
+                        if idx < 0 || idx as usize >= arr.len() {
+                            return Err(format!(
+                                "Slice index {} out of bounds for array of length {}",
+                                idx,
+                                arr.len()
+                            ));
+                        }
+                        Ok(Rc::clone(&arr[idx as usize]))
                     }
                     _ => Err("Invalid array indexing".to_string()),
                 }
@@ -141,16 +165,28 @@ impl Evaluator {
 
     pub fn eval_stmt(&mut self, stmt: &Stmt) -> Result<Option<Value>, String> {
         match stmt {
-            Stmt::VarDecl { name, expr, .. } => {
-                let value = self.eval_expr(expr)?;
+            Stmt::VarDecl { name, expr, ty, .. } => {
+                let mut value = self.eval_expr(expr)?;
+                // HACK: again, slice situation
+                if let Type::Slice(_) = ty {
+                    if let Value::Array(a) = value {
+                        value = Value::Slice(a.clone());
+                    }
+                }
                 let value_ref = Value::new_ref(value);
                 self.current_frame()?.define(name.clone(), value_ref);
                 Ok(None)
             }
 
             Stmt::Assign { lhs, rhs, .. } => {
-                let rhs_value = self.eval_expr(rhs)?;
+                let mut rhs_value = self.eval_expr(rhs)?;
                 let lvalue_ref = self.get_lvalue_ref(lhs)?;
+
+                if let Value::Slice(s) = lvalue_ref.borrow().clone() {
+                    if let Value::Array(a) = rhs_value {
+                        rhs_value = Value::Slice(a.clone());
+                    }
+                }
 
                 *lvalue_ref.borrow_mut() = rhs_value;
                 Ok(None)
@@ -225,16 +261,21 @@ impl Evaluator {
 
                     if let (Value::Int(start), Value::Int(end)) = (start_value, end_value) {
                         // Run the loop
+                        self.current_frame()?.push_scope();
+                        let loop_var = Value::new_ref(Value::Int(start));
+                        self.current_frame()?
+                            .define(iterator_name.clone(), loop_var);
+
                         for i in start..end {
-                            let loop_var = Value::new_ref(Value::Int(i));
-                            self.current_frame()?
-                                .define(iterator_name.clone(), loop_var);
+                            let loop_var = Value::Int(i);
+                            self.current_frame()?.assign(iterator_name, loop_var)?;
 
                             if let Some(return_value) = self.eval_block(block)? {
                                 self.current_frame()?.pop_scope();
                                 return Ok(Some(return_value));
                             }
                         }
+                        self.current_frame()?.pop_scope();
                     }
                 } else {
                     return Err("For loop only with #range".to_string());
@@ -242,7 +283,10 @@ impl Evaluator {
 
                 Ok(None)
             }
-            Stmt::Call(call) => self.eval_call(call),
+            Stmt::Call(call) => {
+                let call_result = self.eval_call(call)?;
+                Ok(None)
+            }
             Stmt::Ret { expr, .. } => {
                 let return_value = self.eval_expr(expr)?;
                 Ok(Some(return_value))
@@ -254,6 +298,17 @@ impl Evaluator {
         let Call { name, args, .. } = call;
 
         if name == "#print" {
+            for (i, arg) in args.iter().enumerate() {
+                let value = self.eval_expr(arg)?;
+                print!("{}", value);
+                if i < args.len() - 1 {
+                    print!(" ");
+                }
+            }
+            return Ok(None);
+        }
+
+        if name == "#println" {
             for (i, arg) in args.iter().enumerate() {
                 let value = self.eval_expr(arg)?;
                 print!("{}", value);
@@ -279,18 +334,34 @@ impl Evaluator {
             let value = self.eval_expr(&arg)?;
             return match value {
                 Value::Array(inner) => Ok(Some(Value::Int(inner.len() as i64))),
+                Value::Slice(inner) => Ok(Some(Value::Int(inner.len() as i64))),
                 Value::Str(inner) => Ok(Some(Value::Int(inner.len() as i64))),
+                _ => Err("Cannot find length of argument".to_string()),
+            };
+        }
+
+        if name == "#sleep" {
+            if args.len() != 1 {
+                return Err("Wrong number of arguments provided to #length".to_string());
+            }
+
+            let arg = args[0].clone();
+            let value = self.eval_expr(&arg)?;
+            return match value {
+                Value::Int(i) => {
+                    std::thread::sleep(Duration::from_millis(i as u64));
+                    Ok(None)
+                }
                 _ => Err("Cannot find length of argument".to_string()),
             };
         }
 
         let arg_values = self.eval_args(args)?;
         if let Some(func) = self.table.procs.get(name).cloned() {
-            self.call_proc(&func, arg_values)?;
+            self.call_proc(&func, arg_values).map(Some)
         } else {
-            return Err(format!("Procedure '{}' not found", name));
+            Err(format!("Procedure '{}' not found", name))
         }
-        Ok(None)
     }
 
     pub fn eval_block(&mut self, block: &Block) -> Result<Option<Value>, String> {
@@ -315,10 +386,9 @@ impl Evaluator {
             Expr::MakeArray { ty, expr, span } => {
                 let length = self.eval_expr(expr)?;
                 match length {
-                    Value::Int(i) => Ok(self.value_from_type(Type::Array(
-                        Box::new(ty.clone()),
-                        ArrayLength::Fixed(i as usize),
-                    ))?),
+                    // TODO: casting
+                    Value::Int(i) => Ok(self.value_slice(ty.clone(), i as usize)?),
+                    // TODO: Better error message
                     _ => Err("bruh".to_string()),
                 }
             }
@@ -364,7 +434,21 @@ impl Evaluator {
                 match (base_value, index_value) {
                     (Value::Array(arr), Value::Int(idx)) => {
                         if idx < 0 || idx as usize >= arr.len() {
-                            return Err("Array index out of bounds".to_string());
+                            return Err(format!(
+                                "Array index {} out of bounds for array of length {}",
+                                idx,
+                                arr.len()
+                            ));
+                        }
+                        Ok(arr[idx as usize].borrow().clone())
+                    }
+                    (Value::Slice(arr), Value::Int(idx)) => {
+                        if idx < 0 || idx as usize >= arr.len() {
+                            return Err(format!(
+                                "Slice index {} out of bounds for array of length {}",
+                                idx,
+                                arr.len()
+                            ));
                         }
                         Ok(arr[idx as usize].borrow().clone())
                     }
@@ -400,26 +484,39 @@ impl Evaluator {
 
         self.current_frame()?.push_scope();
 
-        let param_names: Vec<String> = proc.params.iter().map(|x| x.0.clone()).collect();
-        if param_names.len() != args.len() {
+        // let param_names: Vec<String> = proc.params.iter().map(|x| x.0.clone()).collect();
+
+        if proc.params.len() != args.len() {
             self.current_frame()?.pop_scope();
             self.call_stack.pop();
 
             return Err(format!(
                 "Function '{}' expects {} arguments, got {}",
                 proc.name,
-                param_names.len(),
+                proc.params.len(),
                 args.len()
             ));
         }
 
-        for (param_name, arg_value) in param_names.iter().zip(args.iter()) {
-            let arg_ref = Value::new_ref(arg_value.clone_deep());
-            self.current_frame()?.define(param_name.clone(), arg_ref);
+        for ((name, ty), arg_value) in proc.params.iter().zip(args.iter()) {
+            let mut val = arg_value;
+            // HACK: This is the only way we have to distinguish between Value::Array and Value::Slice.
+            // Literals are evaluated to Value::Array by default, we need type info to determine if it's
+            // a slice.
+            if let Type::Slice(_) = ty {
+                if let Value::Array(elems) = arg_value {
+                    let new_val = Value::Slice(elems.to_vec());
+                    let arg_ref = Value::new_ref(new_val.clone_deep());
+                    self.current_frame()?.define(name.clone(), arg_ref);
+                    continue;
+                }
+            }
+
+            let arg_ref = Value::new_ref(val.clone_deep());
+            self.current_frame()?.define(name.clone(), arg_ref);
         }
 
         let result = self.eval_block(&proc.block)?;
-
         self.current_frame()?.pop_scope();
         self.call_stack.pop();
         Ok(result.unwrap_or(Value::Unit))
@@ -535,10 +632,13 @@ impl Evaluator {
             (Value::Str(a), Eq, Value::Str(b)) => Ok(Value::Bool(a == b)),
             (Value::Str(a), Neq, Value::Str(b)) => Ok(Value::Bool(a != b)),
 
-            _ => Err(format!(
-                "Invalid binary operation: {:?} {:?} {:?}",
-                left_val, op, right_val
-            )),
+            _ => {
+                // panic!();
+                Err(format!(
+                    "Invalid binary operation: {:?} {:?} {:?}",
+                    left_val, op, right_val
+                ))
+            }
         }
     }
 }
@@ -552,6 +652,7 @@ pub enum Value {
     Bool(bool),
     Struct(HashMap<String, Rc<RefCell<Value>>>),
     Array(Vec<Rc<RefCell<Value>>>),
+    Slice(Vec<Rc<RefCell<Value>>>),
     Ref(Rc<RefCell<Value>>),
     Deref(Rc<RefCell<Value>>),
 }
@@ -572,6 +673,12 @@ impl Value {
                 Struct(new_map)
             }
             Ref(value) => Ref(Rc::clone(value)),
+            Array(elems) => Array(
+                elems
+                    .iter()
+                    .map(|x| Value::new_ref(x.borrow().clone_deep()))
+                    .collect(),
+            ),
             _ => self.clone(),
         }
     }
@@ -596,7 +703,7 @@ impl Display for Value {
                 s.push('}');
                 s
             }
-            Value::Array(a) => {
+            Value::Slice(a) | Value::Array(a) => {
                 let mut s = "[".to_string();
                 for (i, value) in a.iter().enumerate() {
                     s.push_str(&value.borrow().to_string());

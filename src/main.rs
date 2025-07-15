@@ -162,7 +162,7 @@ fn main() {
                 file_path, e.span.start_line, e.span.start_column, expected, actual
             ),
             TypeErrorKind::UnexpectedArrayType { expected, actual } => error!(
-                "{}:{}:{}: Expected return type {}, got {}",
+                "{}:{}:{}: Expected array type {}, got {}",
                 file_path, e.span.start_line, e.span.start_column, expected, actual
             ),
             TypeErrorKind::ProcAlreadyDefined => error!(

@@ -145,14 +145,42 @@ impl Typer {
     fn type_infer(&mut self, expr: &Expr) -> Option<Type> {
         match expr {
             Expr::Unit(_) => Some(Type::Unit),
-            Expr::Lit(Lit::Bool(val, lit_span)) => Some(Type::Bool),
-            Expr::Lit(Lit::Int(val, lit_span)) => Some(Type::Int),
-            Expr::Lit(Lit::Float(val, lit_span)) => Some(Type::Float),
-            Expr::Lit(Lit::Str(val, lit_span)) => Some(Type::Str),
-            Expr::MakeArray { ty, expr, span } => {
-                Some(Type::Array(Box::new(ty.clone()), ArrayLength::Dynamic))
+            Expr::Lit(Lit::Bool(_, _)) => Some(Type::Bool),
+            Expr::Lit(Lit::Int(_, _)) => Some(Type::Int),
+            Expr::Lit(Lit::Float(_, _)) => Some(Type::Float),
+            Expr::Lit(Lit::Str(_, _)) => Some(Type::Str),
+            Expr::Lit(Lit::Struct(name, lit, lit_span)) => {
+                let Some(decl) = self.table.structs.get(name) else {
+                    self.add_error(*lit_span, TypeErrorKind::StructNotDefined);
+                    return None;
+                };
+
+                // TODO: is this clone needed?
+                for (field, (ty, _)) in decl.fields.clone() {
+                    if let Some(expr) = lit.get(&field) {
+                        self.type_check_expr(expr, &ty);
+                    };
+                }
+
+                Some(Type::Struct(name.clone()))
             }
+            Expr::MakeArray { ty, expr, span } => Some(Type::Slice(Box::new(ty.clone()))),
             Expr::Call(Call { name, args, span }) => {
+                if name == "#length" {
+                    let Some(arg) = args.first() else {
+                        self.add_error(
+                            *span,
+                            TypeErrorKind::WrongArgCount {
+                                name: "#length".to_string(),
+                                expected: 1,
+                                actual: 0,
+                            },
+                        );
+                        return None;
+                    };
+                    return None;
+                }
+
                 let Some(ProcDecl { params, ret_ty, .. }) = self.table.procs.get(name).cloned()
                 else {
                     self.add_error(*span, TypeErrorKind::ProcNotDefined);
@@ -181,6 +209,16 @@ impl Typer {
                 Some(ret_ty)
             }
             Expr::Ref(expr) => self.type_infer(expr).map(|t| Type::Ref(Box::new(t))),
+            Expr::Deref(expr) => {
+                let inner_ty = self.type_infer(expr);
+                match inner_ty {
+                    Some(Type::Ref(t)) => Some(*t),
+                    _ => {
+                        self.add_error(expr.span(), TypeErrorKind::DerefNonPointer);
+                        None
+                    }
+                }
+            }
             Expr::Proj { expr, field, span } => {
                 let ty = self.type_infer(expr)?;
                 match ty {
@@ -203,6 +241,7 @@ impl Typer {
                 let ty = self.type_infer(expr)?;
                 match ty {
                     Type::Array(elem_ty, size) => Some(*elem_ty),
+                    Type::Slice(elem_ty) => Some(*elem_ty),
                     _ => {
                         self.add_error(expr.span(), TypeErrorKind::IndexingNonArray);
                         None
@@ -210,22 +249,12 @@ impl Typer {
                 }
             }
             Expr::Var { name, span } => self.lookup(name.to_string()),
-            Expr::Deref(expr) => {
-                let inner_ty = self.type_infer(expr);
-                match inner_ty {
-                    Some(Type::Ref(t)) => Some(*t),
-                    _ => {
-                        self.add_error(expr.span(), TypeErrorKind::DerefNonPointer);
-                        None
-                    }
-                }
-            }
             Expr::Unary { op, rhs, span } => match op {
                 UnaryOp::Not => {
                     self.type_check_expr(rhs, &Type::Bool);
                     Some(Type::Bool)
                 }
-                UnaryOp::Minus => match self.type_infer(rhs) {
+                UnaryOp::Minus | UnaryOp::Plus => match self.type_infer(rhs) {
                     Some(Type::Int) => Some(Type::Int),
                     Some(Type::Float) => Some(Type::Float),
                     Some(ty) => {
@@ -265,6 +294,7 @@ impl Typer {
                 None
             }
             _ => {
+                println!("{:#?}", expr);
                 self.add_error(expr.span(), TypeErrorKind::NotAbleToInferType);
                 None
             }
@@ -321,7 +351,31 @@ impl Typer {
                         continue;
                     }
 
+                    if name == "#println" {
+                        for arg in args.iter() {
+                            self.type_infer(arg);
+                        }
+                        continue;
+                    }
+
                     if name == "#stack" {
+                        continue;
+                    }
+
+                    if name == "#sleep" {
+                        let Some(arg) = args.first() else {
+                            self.add_error(
+                                *span,
+                                TypeErrorKind::WrongArgCount {
+                                    name: "#sleep".to_string(),
+                                    expected: 1,
+                                    actual: 0,
+                                },
+                            );
+                            return false;
+                        };
+
+                        self.type_check_expr(arg, &Type::Int);
                         continue;
                     }
 
@@ -338,10 +392,7 @@ impl Typer {
                             return false;
                         };
 
-                        self.type_check_expr(
-                            arg,
-                            &Type::Array(Box::new(Type::Int), ArrayLength::Dynamic),
-                        );
+                        continue;
                     }
 
                     let Some(ProcDecl { params, ret_ty, .. }) = self.table.procs.get(name).cloned()
@@ -424,199 +475,15 @@ impl Typer {
 
     fn type_check_expr(&mut self, expr: &Expr, target: &Type) {
         match (expr, target) {
-            (Expr::Var { name, span }, Type::Array(elem_ty, expected_size)) => {
-                let Some(actual_ty) = self.type_infer(expr) else {
-                    return;
-                };
-
-                match actual_ty {
-                    Type::Array(ty, actual_size) => {
-                        match (expected_size, actual_size) {
-                            (ArrayLength::Dynamic, ArrayLength::Dynamic) => {
-                                // do nothing
-                            }
-                            (ArrayLength::Dynamic, ArrayLength::Fixed(s)) => {
-                                // do nothing
-                            }
-                            (ArrayLength::Fixed(s1), ArrayLength::Fixed(s2)) => {
-                                if *s1 != s2 {
-                                    self.add_error(
-                                        *span,
-                                        TypeErrorKind::UnexpectedArrayLength {
-                                            expected: *s1,
-                                            actual: s2,
-                                        },
-                                    );
-                                }
-                            }
-                            (ArrayLength::Fixed(s), ArrayLength::Dynamic) => {
-                                // TODO: manage expected fixed given dynamic
-                                todo!()
-                            }
-                        }
-                    }
-                    actual_ty => {
-                        self.add_error(
-                            *span,
-                            TypeErrorKind::UnexpectedType {
-                                expected: Type::Array(elem_ty.clone(), expected_size.clone()),
-                                actual: actual_ty.clone(),
-                            },
-                        );
-                    }
-                }
-            }
-            (Expr::Var { name, span }, ty) => {
-                let Some(t) = self.type_infer(expr) else {
-                    return;
-                };
-                if t.clone() != *ty {
-                    self.add_error(
-                        *span,
-                        TypeErrorKind::UnexpectedType {
-                            expected: ty.clone(),
-                            actual: t.clone(),
-                        },
-                    );
-                }
-            }
-            (Expr::Lit(Lit::Struct(lit_name, lit, lit_span)), Type::Struct(name)) => {
-                if lit_name != name {
-                    self.add_error(
-                        *lit_span,
-                        TypeErrorKind::UnexpectedType {
-                            expected: Type::Struct(name.to_string()),
-                            actual: Type::Struct(lit_name.to_string()),
-                        },
-                    );
-                    return;
-                }
-
-                let Some(decl) = self.table.structs.get(name) else {
-                    self.add_error(*lit_span, TypeErrorKind::StructNotDefined);
-                    return;
-                };
-
-                // TODO: is this clone needed?
-                for (field, (ty, _)) in decl.fields.clone() {
-                    if let Some(expr) = lit.get(&field) {
-                        self.type_check_expr(expr, &ty);
-                    } else {
-                        // Use default value instead
-
-                        // self.add_error(
-                        //     *lit_span,
-                        //     TypeErrorKind::StructFieldMissingInLiteral {
-                        //         field: field.clone(),
-                        //         struct_name: name.clone(),
-                        //     },
-                        // );
-                    };
-                }
-            }
-            (
-                Expr::MakeArray {
-                    ty: elem_ty,
-                    expr,
-                    span,
-                },
-                Type::Array(ty, ArrayLength::Dynamic),
-            ) => {
-                if *elem_ty != **ty {
-                    self.add_error(
-                        *span,
-                        TypeErrorKind::UnexpectedArrayType {
-                            expected: *ty.clone(),
-                            actual: elem_ty.clone(),
-                        },
-                    );
-                }
-                self.type_check_expr(expr, &Type::Int);
-            }
-            (Expr::Call(Call { name, args, span }), ty) => {
-                if name == "#length" {
-                    let Some(arg) = args.first() else {
-                        self.add_error(
-                            *span,
-                            TypeErrorKind::WrongArgCount {
-                                name: "#length".to_string(),
-                                expected: 1,
-                                actual: 0,
-                            },
-                        );
-                        return;
-                    };
-
-                    self.type_check_expr(
-                        arg,
-                        &Type::Array(Box::new(Type::Int), ArrayLength::Dynamic),
-                    );
-                }
-
-                if let Some(actual_ty) = self.type_infer(expr) {
-                    if actual_ty != *ty {
-                        self.add_error(
-                            *span,
-                            TypeErrorKind::UnexpectedType {
-                                expected: ty.clone(),
-                                actual: actual_ty.clone(),
-                            },
-                        );
-                    }
-                }
-            }
-            (Expr::Proj { expr, field, span }, ty) => {
-                let rec_ty = self.type_infer(expr);
-            }
             (Expr::Lit(Lit::Array(lit, span)), Type::Array(ty, size)) => {
-                match size {
-                    ArrayLength::Dynamic => {}
-                    ArrayLength::Fixed(s) => {
-                        if s != &lit.len() {
-                            self.add_error(
-                                *span,
-                                TypeErrorKind::UnexpectedArrayLength {
-                                    expected: *s,
-                                    actual: lit.len(),
-                                },
-                            );
-                            return;
-                        }
-                    }
-                }
-
                 for elem in lit.iter() {
                     self.type_check_expr(elem, ty);
                 }
             }
-            (Expr::Index { expr, index, span }, ty) => {
-                match self.type_infer(expr) {
-                    Some(Type::Array(elem_ty, _)) => {
-                        if elem_ty.as_ref() != ty {
-                            self.add_error(
-                                *span,
-                                TypeErrorKind::UnexpectedArrayType {
-                                    expected: ty.clone(),
-                                    actual: *elem_ty.clone(),
-                                },
-                            );
-                            return;
-                        }
-                    }
-                    _ => {
-                        self.add_error(*span, TypeErrorKind::IndexingNonArray);
-                        return;
-                    }
+            (Expr::Lit(Lit::Array(lit, span)), Type::Slice(ty)) => {
+                for elem in lit.iter() {
+                    self.type_check_expr(elem, ty);
                 }
-
-                self.type_check_expr(index, &Type::Int);
-            }
-
-            (Expr::Ref(expr), Type::Ref(ty)) => {
-                self.type_check_expr(expr, ty);
-            }
-            (Expr::Deref(expr), Type::Ref(ty)) => {
-                self.type_check_expr(expr, &Type::Ref(ty.clone()))
             }
             _ => {
                 let actual_ty = self.type_infer(expr);

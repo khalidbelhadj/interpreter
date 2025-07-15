@@ -198,32 +198,24 @@ impl Parser {
             TokenType::LeftBracket => {
                 self.advance();
 
-                let elem_ty = self.parse_type()?;
-                let mut array_length = ArrayLength::Dynamic;
-
                 // Fixed size array
-                if let TokenType::Comma = self.peek_type() {
-                    self.advance();
-
-                    if let TokenType::IntegerLiteral(length) = self.peek_type() {
-                        if length < 0 {
-                            return Err(ParseError {
-                                kind: ParseErrorKind::NegativeArrayLength,
-                                span: self.peek_span(),
-                            });
-                        }
-                        array_length = ArrayLength::Fixed(length as usize);
-                        self.advance();
-                    } else {
+                if let TokenType::IntegerLiteral(i) = self.peek_type() {
+                    if i < 0 {
                         return Err(ParseError {
-                            kind: ParseErrorKind::NonIntLitArrayLength,
+                            kind: ParseErrorKind::NegativeArrayLength,
                             span: self.peek_span(),
                         });
                     }
-                }
 
-                self.consume(TokenType::RightBracket)?;
-                Ok(Type::Array(Box::new(elem_ty), array_length))
+                    self.advance();
+                    self.consume(TokenType::RightBracket)?;
+                    let elem_ty = self.parse_type()?;
+                    Ok(Type::Array(Box::new(elem_ty), i as usize))
+                } else {
+                    self.consume(TokenType::RightBracket)?;
+                    let elem_ty = self.parse_type()?;
+                    Ok(Type::Slice(Box::new(elem_ty)))
+                }
             }
             _ => Err(ParseError {
                 kind: ParseErrorKind::UnexpectedToken {

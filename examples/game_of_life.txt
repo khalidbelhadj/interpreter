@@ -1,0 +1,98 @@
+get_neighbour :: (data [][]bool, i int, j int) int {
+    if i < 0 or i >= #length(data) {
+        return 0;
+    }
+
+    let row []bool = data[i];
+    if j < 0 or j >= #length(row) {
+        return 0;
+    }
+
+    if row[j] { return 1; } else { return 0; }
+}
+
+render :: (data [][]bool) unit {
+    for i in #range(#length(data)) {
+        for j in #range(#length(data[i])) {
+            if data[i][j] {
+                #print("* ");
+            } else {
+                #print(". ");
+            }
+        }
+        #println();
+    }
+}
+
+update :: (data [][]bool) unit {
+    // Copy over the result
+    let height int = #length(data);
+    let width int = #length(data[0]);
+
+    let new_data [][]bool = #array([]bool, height);
+    for i in #range(height) {
+        new_data[i] = #array(bool, width);
+    }
+
+    for i in #range(height) {
+        for j in #range(width) {
+            // Copy old value
+            new_data[i][j] = data[i][j];
+
+            let ncount int =
+                get_neighbour(data, i, j - 1) +
+                get_neighbour(data, i, j + 1) +
+                get_neighbour(data, i - 1, j) +
+                get_neighbour(data, i + 1, j) +
+                get_neighbour(data, i - 1, j - 1) +
+                get_neighbour(data, i + 1, j - 1) +
+                get_neighbour(data, i - 1, j + 1) +
+                get_neighbour(data, i + 1, j + 1);
+
+            if new_data[i][j] {
+                // Live cell, dies when under/over populated
+                if ncount < 2 or ncount > 3 {
+                    new_data[i][j] = false;
+                }
+            } else {
+                // Dead cell, lives when exactly three neighbours
+                if ncount == 3 {
+                    new_data[i][j] = true;
+                }
+            }
+        }
+    }
+
+    // HACK: This is because assigning slices is broken
+    for i in #range(height) {
+        for j in #range(width) {
+            data[i][j] = new_data[i][j];
+        }
+    }
+}
+
+main :: () unit {
+    let height int = 10;
+    let width int = 10;
+
+    let data [][]bool = #array([]bool, height);
+    for i in #range(height) {
+        data[i] = #array(bool, width);
+    }
+
+    data[2][3] = true;
+    data[3][4] = true;
+    data[4][4] = true;
+    data[4][3] = true;
+    data[4][2] = true;
+
+    render(data);
+    #println();
+    
+    for i in #range(5) {
+        update(data);
+        render(data);
+        #println();
+        #sleep(500);
+    }
+}

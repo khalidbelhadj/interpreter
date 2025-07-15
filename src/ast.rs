@@ -221,7 +221,8 @@ pub enum Type {
     Str,
     Bool,
     Struct(String),
-    Array(Box<Type>, ArrayLength),
+    Array(Box<Type>, usize),
+    Slice(Box<Type>),
     Ref(Box<Type>),
 }
 
@@ -234,18 +235,12 @@ impl Display for Type {
             Type::Str => "string".to_string(),
             Type::Bool => "bool".to_string(),
             Type::Struct(s) => s.to_string(),
-            Type::Array(ty, ArrayLength::Dynamic) => format!("[{ty}]"),
-            Type::Array(ty, ArrayLength::Fixed(size)) => format!("[{ty}, {size}]",),
+            Type::Array(ty, size) => format!("[{size}]{ty}",),
+            Type::Slice(ty) => format!("[]{ty}"),
             Type::Ref(ty) => format!("&{ty}"),
         };
         write!(f, "{string}")
     }
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub enum ArrayLength {
-    Fixed(usize),
-    Dynamic,
 }
 
 #[derive(Clone)]

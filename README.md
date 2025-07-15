@@ -200,17 +200,23 @@ This is a multi line comment
     - Assign default value for struct fields
 - [x] Allow identifiers that start with underscore
 - [x] Make fields optional in struct fields
-    - TODO: This was a bit sketchy, maybe go over how types are passed to the evaluator. Might be useful in the future for other things.
+    - This was a bit sketchy, maybe go over how types are passed to the evaluator. Might be useful in the future for other things.
 - [x] Negative numbers
-- [ ] Fixed precision numbers like u32, i64 and so on
+- [ ] Fix assigning to slice not copying over the value
+- [ ] Fix parsing to actually encode precedence
 - [ ] Make strings more concrete
     - array of chars? How do we represent them?
     - multiline, special chars, utf-8 or whatever
-- [ ] Tuples
 - [ ] Variants
     - Enums
     - Raw unions
     - Tagged union
+- [ ] Better resolving of top levels
+- [ ] Recursive types
+- [ ] Const expressions
+- [ ] Type casting
+- [ ] Fixed precision numbers like u32, i64 and so on
+- [ ] Tuples
 - [ ] Generics
 - [ ] Type inference
 - [ ] Standard library
