@@ -223,20 +223,21 @@ This is a multi line comment
 - [x] Make fields optional in struct fields
     - This was a bit sketchy, maybe go over how types are passed to the evaluator. Might be useful in the future for other things.
 - [x] Negative numbers
+- [ ] Start implementing test cases
+- [ ] Stack trace on panic in evaluation
+    - Distinguish between user and compiler errors
 - [ ] Fix spans being more accurate
     - Remove Span::empty
 - [ ] Make strings more concrete
     - array of chars? How do we represent them?
     - multiline, special chars, utf-8 or whatever
-- [ ] Stack trace on panic in evaluation
-    - Distinguish between user and compiler errors
+- [ ] Const expressions
 - [ ] Variants
     - Enums
     - Raw unions
     - Tagged union
 - [ ] Better resolving of top levels, out of order
 - [ ] Recursive types
-- [ ] Const expressions
 - [ ] Type casting
 - [ ] Fixed precision numbers like u32, i64 and so on
 - [ ] Tuples

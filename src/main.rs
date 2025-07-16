@@ -1,14 +1,14 @@
 #![allow(unused)]
 
 pub mod ast;
+pub mod error;
 pub mod eval;
 pub mod parser;
 pub mod token;
 pub mod tokeniser;
 pub mod typer;
 
-use crate::ast::ParseError;
-use crate::ast::TypeErrorKind;
+use crate::error::*;
 use crate::eval::Evaluator;
 use crate::parser::*;
 use crate::tokeniser::*;
@@ -89,25 +89,25 @@ fn main() {
 
     if let Err(err) = parser.parse() {
         match err.kind {
-            ast::ParseErrorKind::UnexpectedToken { expected, actual } => {
+            ParseErrorKind::UnexpectedToken { expected, actual } => {
                 error!(
                     "{}:{}:{}: Expected {}, got {}",
                     file_path, err.span.start_line, err.span.start_column, expected, actual
                 )
             }
-            ast::ParseErrorKind::NegativeArrayLength => error!(
+            ParseErrorKind::NegativeArrayLength => error!(
                 "{}:{}:{}: Array length must be non-negative",
                 file_path, err.span.start_line, err.span.start_column
             ),
-            ast::ParseErrorKind::NonIntLitArrayLength => error!(
+            ParseErrorKind::NonIntLitArrayLength => error!(
                 "{}:{}:{}: Array length must be an integer",
                 file_path, err.span.start_line, err.span.start_column
             ),
-            ast::ParseErrorKind::InvalidLeftHandSide => error!(
+            ParseErrorKind::InvalidLeftHandSide => error!(
                 "{}:{}:{}: Invalid left-hand side of assignment",
                 file_path, err.span.start_line, err.span.start_column
             ),
-            ast::ParseErrorKind::InvalidReferenceTarget => error!(
+            ParseErrorKind::InvalidReferenceTarget => error!(
                 "{}:{}:{}: Invalid reference target",
                 file_path, err.span.start_line, err.span.start_column
             ),
@@ -231,6 +231,10 @@ fn main() {
             ),
             TypeErrorKind::UnreachableCodeAfterReturn => error!(
                 "{}:{}:{}: Unreachable code after returning from procedure",
+                file_path, e.span.start_line, e.span.start_column,
+            ),
+            TypeErrorKind::LengthOfNonArray => error!(
+                "{}:{}:{}: Can't find length of non-array type",
                 file_path, e.span.start_line, e.span.start_column,
             ),
         }

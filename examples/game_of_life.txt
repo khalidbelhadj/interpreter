@@ -14,7 +14,7 @@ get_neighbour :: (data [][]bool, i int, j int) int {
 render :: (data [][]bool) unit {
     for i in #range(#length(data)) {
         for j in #range(#length(data[i])) {
-            if data[i][j]
+            if data[i][j] {
                 #print("* ");
             } else {
                 #print(". ");
@@ -71,8 +71,8 @@ update :: (data [][]bool) unit {
 }
 
 main :: () unit {
-    let height int = 10;
-    let width int = 10;
+    let height int = 20;
+    let width int = 20;
 
     let data [][]bool = #array([]bool, height);
     for i in #range(height) {
@@ -87,11 +87,11 @@ main :: () unit {
 
     render(data);
     #println();
-    
-    for i in #range(5) {
+
+    for i in #range(50) {
         update(data);
         render(data);
         #println();
-        #sleep(500);
+        #sleep(200);
     }
 }

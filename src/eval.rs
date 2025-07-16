@@ -2,7 +2,6 @@ use log::debug;
 
 use crate::ast::*;
 use crate::token::*;
-use crate::typer::SymbolTable;
 use std::array;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -533,25 +532,30 @@ impl Evaluator {
             Lit::Str(s, _) => Ok(Value::Str(s.clone())),
             Lit::Bool(b, _) => Ok(Value::Bool(*b)),
 
-            Lit::Struct(name, fields, _) => {
+            Lit::Struct(name, lit_fields, _) => {
                 let Some(decl) = self.table.structs.get(name) else {
                     return Err(format!("Struct name \"{name}\" is not defined"));
                 };
 
                 let mut struct_fields = HashMap::new();
-                for (field_name, (ty, _)) in decl.fields.clone() {
-                    if let Some(field_expr) = fields.get(&field_name) {
+                for (field_name, (ty, default_value)) in decl.fields.clone() {
+                    if let Some(field_expr) = lit_fields.get(&field_name) {
+                        // We have a provided value
                         let field_value = self.eval_expr(field_expr)?;
                         let field_ref = Value::new_ref(field_value);
                         struct_fields.insert(field_name.clone(), field_ref);
                     } else {
-                        let field_value = self.value_from_type(ty)?;
+                        // Use the default value
+                        let field_value = match default_value {
+                            Some(expr) => self.eval_expr(&expr)?,
+                            None => self.value_from_type(ty)?,
+                        };
                         let field_ref = Value::new_ref(field_value);
                         struct_fields.insert(field_name.clone(), field_ref);
                     }
                 }
 
-                for (field_name, field_expr) in fields {
+                for (field_name, field_expr) in lit_fields {
                     let field_value = self.eval_expr(field_expr)?;
                     let field_ref = Value::new_ref(field_value);
                     struct_fields.insert(field_name.clone(), field_ref);

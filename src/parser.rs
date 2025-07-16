@@ -2,6 +2,7 @@ use core::{error, panic};
 use std::{collections::HashMap, fmt::Display, process::exit};
 
 use crate::ast::*;
+use crate::error::*;
 use crate::token::*;
 use crate::tokeniser::*;
 use log::{debug, error};
