@@ -181,12 +181,12 @@ fn main() {
                 "{}:{}:{}: Procedure not defined",
                 file_path, e.span.start_line, e.span.start_column
             ),
-            TypeErrorKind::VarNotDefined => error!(
-                "{}:{}:{}: Variable not defined",
-                file_path, e.span.start_line, e.span.start_column
-            ),
             TypeErrorKind::StructNotDefined => error!(
                 "{}:{}:{}: Struct not defined",
+                file_path, e.span.start_line, e.span.start_column
+            ),
+            TypeErrorKind::VarNotDefined { name } => error!(
+                "{}:{}:{}: Variable \"{name}\" not defined",
                 file_path, e.span.start_line, e.span.start_column
             ),
             TypeErrorKind::ProjectingNonStruct => error!(
@@ -213,8 +213,8 @@ fn main() {
                 "{}:{}:{}: Scope not defined",
                 file_path, e.span.start_line, e.span.start_column
             ),
-            TypeErrorKind::StructFieldMissingInLiteral { field, struct_name } => error!(
-                "{}:{}:{}: Missing field \"{}\" in struct literal of type {}",
+            TypeErrorKind::UnkownStrtructField { field, struct_name } => error!(
+                "{}:{}:{}: Unkown field \"{}\" in struct literal of type {}",
                 file_path, e.span.start_line, e.span.start_column, field, struct_name
             ),
             TypeErrorKind::WrongArgCount {
@@ -232,10 +232,6 @@ fn main() {
             TypeErrorKind::UnreachableCodeAfterReturn => error!(
                 "{}:{}:{}: Unreachable code after returning from procedure",
                 file_path, e.span.start_line, e.span.start_column,
-            ),
-            TypeErrorKind::MissingField { field } => error!(
-                "{}:{}:{}: Missing field {} in struct literal",
-                file_path, e.span.start_line, e.span.start_column, field
             ),
         }
     }

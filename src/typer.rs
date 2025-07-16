@@ -126,7 +126,7 @@ impl Typer {
                     // TODO: Empty span
                     self.add_error(
                         Span::empty(),
-                        TypeErrorKind::StructFieldMissingInLiteral {
+                        TypeErrorKind::UnkownStrtructField {
                             field: field.clone(),
                             struct_name: decl.name.clone(),
                         },
@@ -248,7 +248,7 @@ impl Typer {
                     }
                 }
             }
-            Expr::Var { name, span } => self.lookup(name.to_string()),
+            Expr::Var { name, span } => self.lookup(name.to_string(), *span),
             Expr::Unary { op, rhs, span } => match op {
                 UnaryOp::Not => {
                     self.type_check_expr(rhs, &Type::Bool);
@@ -294,7 +294,6 @@ impl Typer {
                 None
             }
             _ => {
-                println!("{:#?}", expr);
                 self.add_error(expr.span(), TypeErrorKind::NotAbleToInferType);
                 None
             }
@@ -449,6 +448,40 @@ impl Typer {
                     block,
                     span,
                 } => {
+                    let Expr::Call(Call {
+                        name: range_name,
+                        args,
+                        span,
+                    }) = range
+                    else {
+                        // TODO: Error here
+                        continue;
+                    };
+
+                    // TODO: Verify range name
+
+                    match args.len() {
+                        1 => {
+                            self.type_check_expr(&args[0], &Type::Int);
+                        }
+                        2 => {
+                            self.type_check_expr(&args[0], &Type::Int);
+                            self.type_check_expr(&args[1], &Type::Int);
+                        }
+                        _ => {
+                            // TODO: Eitehr 1 or 2, not just 1
+                            self.add_error(
+                                *span,
+                                TypeErrorKind::WrongArgCount {
+                                    name: "#range".to_string(),
+                                    expected: 1,
+                                    actual: args.len(),
+                                },
+                            );
+                            continue;
+                        }
+                    }
+
                     self.type_check_block(vec![(name.clone(), Type::Int)], block, ret_ty.clone());
                 }
                 Stmt::Ret { expr, span } => {
@@ -475,16 +508,23 @@ impl Typer {
 
     fn type_check_expr(&mut self, expr: &Expr, target: &Type) {
         match (expr, target) {
-            (Expr::Lit(Lit::Array(lit, span)), Type::Array(ty, size)) => {
-                for elem in lit.iter() {
-                    self.type_check_expr(elem, ty);
+            (Expr::Lit(Lit::Array(lit, span)), ty) => match ty {
+                Type::Array(elem_ty, _) | Type::Slice(elem_ty) => {
+                    for elem in lit.iter() {
+                        self.type_check_expr(elem, elem_ty);
+                    }
                 }
-            }
-            (Expr::Lit(Lit::Array(lit, span)), Type::Slice(ty)) => {
-                for elem in lit.iter() {
-                    self.type_check_expr(elem, ty);
+                _ => {
+                    self.add_error(
+                        expr.span(),
+                        TypeErrorKind::UnexpectedType {
+                            expected: target.clone(),
+                            // TODO: Change
+                            actual: TypeSet::Text("array literal".to_string()),
+                        },
+                    );
                 }
-            }
+            },
             _ => {
                 let actual_ty = self.type_infer(expr);
                 if let Some(inferred_ty) = actual_ty {
@@ -493,7 +533,7 @@ impl Typer {
                             expr.span(),
                             TypeErrorKind::UnexpectedType {
                                 expected: target.clone(),
-                                actual: inferred_ty.clone(),
+                                actual: TypeSet::One(inferred_ty.clone()),
                             },
                         );
                     }
@@ -551,7 +591,7 @@ impl Typer {
         scope.insert(name.to_string(), ty);
     }
 
-    fn lookup(&mut self, name: String) -> Option<Type> {
+    fn lookup(&mut self, name: String, span: Span) -> Option<Type> {
         for scope in self.scopes.iter().rev() {
             if let Some(value_ref) = scope.get(&name) {
                 return Some(value_ref.clone());
@@ -559,7 +599,7 @@ impl Typer {
         }
 
         // TODO: Empty span
-        self.add_error(Span::empty(), TypeErrorKind::VarNotDefined);
+        self.add_error(span, TypeErrorKind::VarNotDefined { name: name.clone() });
         None
     }
 }

@@ -105,10 +105,29 @@ for i in #range(10) {
 
 ### Arrays and Slices
 
-Arrays are the main primitive for contiguous memory. They are defined using `[]` syntax. A size parameter is provided after the type. If the size parameter is not provided, the array is now a slice, meaning it's size is determined at runtime. Arrays can be taken as slices, but slices cannot be taken as arrays.
+Arrays are the main primitive for contiguous memory. They are defined using `[]` syntax, with a size parameter inside the brackets and a following element type. Arrays have a predetermined size which is provided at compile time. Arrays can be instantitated using the array literal syntax `[1, 2, 3]`.
+
+Slices are similar to arrays, but their size is determined at runtime. Conceptually, a slice is simply it's header
+```
+SliceHeader :: struct {
+    length int,
+    data &T
+}
+```
+
+Slices can both be indexed, and are passed by value. When a slice is passed by value, it's elements can be modified. An array passed as a copy of all the elements.
+
 
 ```
-sum :: (xs [int]) int {
+sum_array :: (xs [5]int) int {
+    let sum int = 0;
+    for i in #range(5) {
+        sum = sum + xs[i];
+    }
+    return sum;
+}
+
+sum_slice :: (xs []int) int {
     let sum int = 0;
     for i in #range(5) {
         sum = sum + xs[i];
@@ -117,18 +136,20 @@ sum :: (xs [int]) int {
 }
 
 
-let numbers [int, 5] = [1, 2, 3, 4, 5];
-#print(sum(numbers));
+let xs [5]int = [1, 2, 3, 4, 5];
+sum_array(xs)
+let ys []int = [1, 2, 3, 4, 5];
+sum_slice(ys)
 ```
 
 The `#length` builtin is used to get the length of an array or slice. If the length of an array is not known at compile time, it can be created using the `#array` directive.
 
 ```
 let length int = 20;
-let xs [int] = #array(int, 20)
+let xs []int = #array(int, 20)
 ```
 
-This creates an array of the specified type and size with it's default value.
+This creates a slice of the specified type and size with it's default value.
 
 ### Default Values
 
@@ -139,7 +160,7 @@ In some cases, variables might be uninitialised. In this case they take their de
 | `int` | `0` |
 | `float` | `0.0` |
 | `string` | `""` |
-| `[T]` | `[]` |
+| `[]T` | `[]` |
 
 ## References
 
@@ -202,16 +223,18 @@ This is a multi line comment
 - [x] Make fields optional in struct fields
     - This was a bit sketchy, maybe go over how types are passed to the evaluator. Might be useful in the future for other things.
 - [x] Negative numbers
-- [ ] Fix assigning to slice not copying over the value
-- [ ] Fix parsing to actually encode precedence
+- [ ] Fix spans being more accurate
+    - Remove Span::empty
 - [ ] Make strings more concrete
     - array of chars? How do we represent them?
     - multiline, special chars, utf-8 or whatever
+- [ ] Stack trace on panic in evaluation
+    - Distinguish between user and compiler errors
 - [ ] Variants
     - Enums
     - Raw unions
     - Tagged union
-- [ ] Better resolving of top levels
+- [ ] Better resolving of top levels, out of order
 - [ ] Recursive types
 - [ ] Const expressions
 - [ ] Type casting
@@ -221,4 +244,9 @@ This is a multi line comment
 - [ ] Type inference
 - [ ] Standard library
     - collections
+    - io
+    - maths
+    - os
+    - date/time
     - libc like library
+

@@ -14,7 +14,7 @@ get_neighbour :: (data [][]bool, i int, j int) int {
 render :: (data [][]bool) unit {
     for i in #range(#length(data)) {
         for j in #range(#length(data[i])) {
-            if data[i][j] {
+            if data[i][j]
                 #print("* ");
             } else {
                 #print(". ");
@@ -63,7 +63,6 @@ update :: (data [][]bool) unit {
         }
     }
 
-    // HACK: This is because assigning slices is broken
     for i in #range(height) {
         for j in #range(width) {
             data[i][j] = new_data[i][j];

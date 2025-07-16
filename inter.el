@@ -38,7 +38,7 @@
 
     ;; 3. Built-in functions/macros (e.g., #print, #length)
     ;; Specific constructs like these should be matched before more general rules.
-    ("\\(#\\(?:print\\|length\\|range\\)\\)\\b" . font-lock-builtin-face)
+    ("\\(#\\(?:print\\|length\\|range\\|println\\|stack\\|sleep\\)\\)\\b" . font-lock-builtin-face)
 
     ;; 4. Function names in definition (e.g., my_func :: (...))
     ;; Catches: add :: (x int, y int) int {
@@ -59,7 +59,7 @@
 
     ;; 7. Primitive Types and 'unit' type
     ;; Covers: int, unit
-    ("\\b\\(int\\|float\\|unit\\|string\\)\\b" . font-lock-type-face)
+    ("\\b\\(int\\|float\\|unit\\|string\\|bool\\|true\\|false\\)\\b" . font-lock-type-face)
 
     ;; 8. User-defined types (heuristic: capitalized words not caught by other rules)
     ;; This will catch 'Point2D' in 'let p Point2D =' or parameter '(p Point2D)'

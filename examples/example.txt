@@ -1,34 +1,19 @@
-// A slice is conceptually just a struct with length and data
-// ```
-// SliceHeader :: struct {np
-//     len usize,
-//     data &T,
-// }
-// ```
-// 
-// An array is simply the data itself at a fixed size known at compile time.
-// When the array is dynamically allocted, we need to use slices so that
-// length information is kept at runtime
-//
-
-
 f :: (a [2]int) unit {
-    a[0] = 100;
+    a = [9, 8];
 }
 
-g :: (a []int) unit {
-    a[0] = 100;
+g :: (a &[]int) unit {
+    *a = [1, 2, 3, 4];
 }
 
 main :: () unit {
-    let a [2]int = [1, 2];
-    f(a);
-    let b []int = [3, 4];
-    g(b);
+    let xs [2]int = [1, 2];
+    let ys []int = [1, 2];
 
-    let c []int = [1, 2, 3];
-    let d &[]int = &c;
-    let e int = *d[0];
-    #println(d);
+    f(xs);
+    g(&ys);
+
+    #println(xs);
+    #println(ys);
 }
 

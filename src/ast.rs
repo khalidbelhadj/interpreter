@@ -443,7 +443,7 @@ pub enum TypeErrorKind {
     },
     UnexpectedType {
         expected: Type,
-        actual: Type,
+        actual: TypeSet,
     },
     UnexpectedArrayLength {
         expected: usize,
@@ -460,7 +460,9 @@ pub enum TypeErrorKind {
     StructAlreadyDefined,
     VarAlreadyDefined,
     ProcNotDefined,
-    VarNotDefined,
+    VarNotDefined {
+        name: String,
+    },
     StructNotDefined,
 
     // Unary operation
@@ -476,7 +478,7 @@ pub enum TypeErrorKind {
 
     // Other
     ScopeNotDefined,
-    StructFieldMissingInLiteral {
+    UnkownStrtructField {
         field: String,
         struct_name: String,
     },
@@ -487,9 +489,6 @@ pub enum TypeErrorKind {
     },
     NotAbleToInferType,
     UnreachableCodeAfterReturn,
-    MissingField {
-        field: String,
-    },
 }
 
 pub enum TypeSet {
@@ -500,8 +499,8 @@ pub enum TypeSet {
 impl Display for TypeSet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TypeSet::One(inner) => write!(f, "{:?}", inner),
-            TypeSet::Text(t) => write!(f, "{:?}", t),
+            TypeSet::One(inner) => write!(f, "{}", inner),
+            TypeSet::Text(t) => write!(f, "{}", t),
         }
     }
 }
