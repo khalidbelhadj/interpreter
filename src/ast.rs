@@ -111,8 +111,12 @@ pub enum Expr {
         rhs: Box<Expr>,
         span: Span,
     },
-    MakeArray {
+    MakeSlice {
         ty: Type,
+        expr: Box<Expr>,
+        span: Span,
+    },
+    MakeSliceFromArray {
         expr: Box<Expr>,
         span: Span,
     },
@@ -208,7 +212,8 @@ impl Display for Expr {
             Expr::Index { expr, index, .. } => write!(f, "{}[{}]", expr, index),
             Expr::Ref(expr) => write!(f, "&{}", expr),
             Expr::Deref(expr) => write!(f, "*{}", expr),
-            Expr::MakeArray { ty, expr, span } => todo!(),
+            Expr::MakeSlice { ty, expr, span } => todo!(),
+            Expr::MakeSliceFromArray { expr, span } => todo!(),
         }
     }
 }
@@ -336,7 +341,8 @@ impl Expr {
             Expr::Proj { span, .. } => *span,
             Expr::Index { span, .. } => *span,
             Expr::Lit(lit) => *lit.span(),
-            Expr::MakeArray { span, .. } => *span,
+            Expr::MakeSlice { span, .. } => *span,
+            Expr::MakeSliceFromArray { expr, span } => *span,
         }
     }
 }

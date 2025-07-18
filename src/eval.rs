@@ -166,7 +166,7 @@ impl Evaluator {
         match stmt {
             Stmt::VarDecl { name, expr, ty, .. } => {
                 let mut value = self.eval_expr(expr)?;
-                // HACK: again, slice situation
+                // @ambiguous-slice-literal
                 if let Type::Slice(_) = ty {
                     if let Value::Array(a) = value {
                         value = Value::Slice(a.clone());
@@ -382,14 +382,18 @@ impl Evaluator {
         match expr {
             Expr::Unit(_) => Ok(Value::Unit),
             Expr::Lit(lit) => self.eval_literal(lit),
-            Expr::MakeArray { ty, expr, span } => {
+            Expr::MakeSlice { ty, expr, span } => {
                 let length = self.eval_expr(expr)?;
                 match length {
                     // TODO: casting
                     Value::Int(i) => Ok(self.value_slice(ty.clone(), i as usize)?),
                     // TODO: Better error message
-                    _ => Err("bruh".to_string()),
+                    _ => Err("Arg must be int".to_string()),
                 }
+            }
+            Expr::MakeSliceFromArray { expr, span } => {
+                // TODO: Make slice from array
+                todo!()
             }
             Expr::Var { name, .. } => {
                 let value_ref = self
@@ -499,9 +503,7 @@ impl Evaluator {
 
         for ((name, ty), arg_value) in proc.params.iter().zip(args.iter()) {
             let mut val = arg_value;
-            // HACK: This is the only way we have to distinguish between Value::Array and Value::Slice.
-            // Literals are evaluated to Value::Array by default, we need type info to determine if it's
-            // a slice.
+            // @ambiguous-slice-literal
             if let Type::Slice(_) = ty {
                 if let Value::Array(elems) = arg_value {
                     let new_val = Value::Slice(elems.to_vec());

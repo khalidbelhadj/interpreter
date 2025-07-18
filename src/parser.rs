@@ -570,7 +570,7 @@ impl Parser {
                 self.advance();
                 let rhs = self.parse_prefix(is_condition)?;
 
-                // TODO: Empty span
+                // TODO: @empty-span
                 return Ok(Expr::Unary {
                     op: UnaryOp::Not,
                     rhs: Box::new(rhs),
@@ -693,15 +693,15 @@ impl Parser {
 
                 match self.peek_type() {
                     TokenType::LeftParen => {
-                        if name == "#array" {
+                        if name == "#slice" {
                             self.consume(TokenType::LeftParen)?;
                             let ty = self.parse_type()?;
                             self.consume(TokenType::Comma)?;
                             let expr = self.parse_expr()?;
                             self.consume(TokenType::RightParen)?;
 
-                            // TODO: Empty span
-                            return Ok(Expr::MakeArray {
+                            // TODO: @empty-span
+                            return Ok(Expr::MakeSlice {
                                 ty,
                                 expr: Box::new(expr),
                                 span: Span::empty(),

@@ -36,6 +36,7 @@ typer
 - unreachable code after return
 
 - struct default expressions
+- array of not all the same type
 
 eval
 - a bunch of tests to see if functions return what we expect
@@ -52,3 +53,4 @@ eval
 - slices are passed by value of the header
 - precedence tests
 - associativity tests
+- array index out of bounds

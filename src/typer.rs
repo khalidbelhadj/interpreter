@@ -1,4 +1,4 @@
-use core::cell::Ref;
+// use core::cell::Ref;
 use std::any::Any;
 use std::clone;
 use std::collections::{HashMap, HashSet};
@@ -94,7 +94,7 @@ impl Typer {
             Some(decl) => match decl.fields.get(&field) {
                 Some(ty) => Some(ty.0.clone()),
                 None => {
-                    // TODO: Empty span
+                    // @empty-span
                     self.add_error(
                         Span::empty(),
                         TypeErrorKind::UnkownStrtructField {
@@ -106,7 +106,7 @@ impl Typer {
                 }
             },
             None => {
-                // TODO: Empty span
+                // @empty-span
                 self.add_error(Span::empty(), TypeErrorKind::StructNotDefined);
                 None
             }
@@ -207,7 +207,6 @@ impl Typer {
             Expr::Lit(Lit::Int(_, _)) => Some(Type::Int),
             Expr::Lit(Lit::Float(_, _)) => Some(Type::Float),
             Expr::Lit(Lit::Str(_, _)) => Some(Type::Str),
-            // Expr::Lit(Lit::Array(elems, _)) => Some(Type::Array((), ())),
             Expr::Lit(Lit::Struct(name, lit, lit_span)) => {
                 let Some(decl) = self.table.structs.get(name) else {
                     self.add_error(*lit_span, TypeErrorKind::StructNotDefined);
@@ -223,7 +222,8 @@ impl Typer {
 
                 Some(Type::Struct(name.clone()))
             }
-            Expr::MakeArray { ty, expr, span } => Some(Type::Slice(Box::new(ty.clone()))),
+            // TODO: Check that expr is int
+            Expr::MakeSlice { ty, expr, span } => Some(Type::Slice(Box::new(ty.clone()))),
             Expr::Call(call) => {
                 self.type_check_call(call);
                 None
@@ -353,6 +353,7 @@ impl Typer {
                     expr,
                     span,
                 } => {
+                    // @invalid-annotations
                     self.type_check_expr(expr, ty);
                     self.define(name, ty.clone());
                 }
@@ -474,6 +475,7 @@ impl Typer {
             },
             _ => {
                 let actual_ty = self.type_infer(expr);
+                // @invalid-annotations
                 if let Some(inferred_ty) = actual_ty {
                     if inferred_ty != *target {
                         self.add_error(
@@ -517,7 +519,7 @@ impl Typer {
 
     pub fn exit_scope(&mut self) {
         let Some(_) = self.scopes.pop() else {
-            // TODO: Empty span
+            // @empty-span
             self.add_error(Span::empty(), TypeErrorKind::ScopeNotDefined);
             return;
         };
@@ -525,13 +527,13 @@ impl Typer {
 
     fn define(&mut self, name: &str, ty: Type) {
         let Some(scope) = self.scopes.last_mut() else {
-            // TODO: Empty span
+            // @empty-span
             self.add_error(Span::empty(), TypeErrorKind::ScopeNotDefined);
             return;
         };
 
         if scope.contains_key(name) {
-            // TODO: Empty span
+            // @empty-span
             self.add_error(Span::empty(), TypeErrorKind::VarAlreadyDefined);
             return;
         }
@@ -545,7 +547,7 @@ impl Typer {
             }
         }
 
-        // TODO: Empty span
+        // @empty-span
         self.add_error(span, TypeErrorKind::VarNotDefined { name: name.clone() });
         None
     }

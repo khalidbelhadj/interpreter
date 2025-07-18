@@ -29,9 +29,9 @@ update :: (data [][]bool) unit {
     let height int = #length(data);
     let width int = #length(data[0]);
 
-    let new_data [][]bool = #array([]bool, height);
+    let new_data [][]bool = #slice([]bool, height);
     for i in #range(height) {
-        new_data[i] = #array(bool, width);
+        new_data[i] = #slice(bool, width);
     }
 
     for i in #range(height) {
@@ -74,9 +74,9 @@ main :: () unit {
     let height int = 20;
     let width int = 20;
 
-    let data [][]bool = #array([]bool, height);
+    let data [][]bool = #slice([]bool, height);
     for i in #range(height) {
-        data[i] = #array(bool, width);
+        data[i] = #slice(bool, width);
     }
 
     data[2][3] = true;

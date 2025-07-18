@@ -142,11 +142,11 @@ let ys []int = [1, 2, 3, 4, 5];
 sum_slice(ys)
 ```
 
-The `#length` builtin is used to get the length of an array or slice. If the length of an array is not known at compile time, it can be created using the `#array` directive.
+The `#length` builtin is used to get the length of an array or slice. If the length of an array is not known at compile time, it can be created using the `#slice` directive.
 
 ```
 let length int = 20;
-let xs []int = #array(int, 20)
+let xs []int = #slice(int, 20)
 ```
 
 This creates a slice of the specified type and size with it's default value.
@@ -215,7 +215,7 @@ This is a multi line comment
   - use references as types and function semanticsn
 - [x] Floats
 - [x] `not` operator
-- [x] `#array` directive for dynamically allocated array
+- [x] `#slice` directive for dynamically allocated array
 - [x] Default values
     - Figure out what the default value of things are
     - Assign default value for struct fields
@@ -224,10 +224,11 @@ This is a multi line comment
     - This was a bit sketchy, maybe go over how types are passed to the evaluator. Might be useful in the future for other things.
 - [x] Negative numbers
 - [ ] Start implementing test cases
+- [ ] BUG: @invalid-annotations Annotations can be invalid, such as undefined struct
+- [ ] HACK: @empty-spans Remove empty spans
+- [ ] HACK: @ambiguous-slice-literal Array/slice literals are hard to tell apart
 - [ ] Stack trace on panic in evaluation
     - Distinguish between user and compiler errors
-- [ ] Fix spans being more accurate
-    - Remove Span::empty
 - [ ] Make strings more concrete
     - array of chars? How do we represent them?
     - multiline, special chars, utf-8 or whatever

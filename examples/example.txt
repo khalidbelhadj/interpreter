@@ -1,3 +1,10 @@
-main :: () unit {
-    #print(#length());
+A :: struct {
+    a []string = ["hello", "world"],
 }
+
+main :: () unit {
+    let arr [5]int = [1, 2, 3, 4, 5];
+    let xs []int = #slice(arr);
+    #print(xs);
+}
+
