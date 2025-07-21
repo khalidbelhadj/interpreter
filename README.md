@@ -224,9 +224,11 @@ This is a multi line comment
     - This was a bit sketchy, maybe go over how types are passed to the evaluator. Might be useful in the future for other things.
 - [x] Negative numbers
 - [ ] Start implementing test cases
-- [ ] BUG: @invalid-annotations Annotations can be invalid, such as undefined struct
+- [x] @invalid-annotations Annotations can be invalid, such as undefined struct
+- [ ] BUG: Return types not checked properly, Expect array return slice works
 - [ ] HACK: @empty-spans Remove empty spans
 - [ ] HACK: @ambiguous-slice-literal Array/slice literals are hard to tell apart
+- [ ] TODO: Add span to slices
 - [ ] Stack trace on panic in evaluation
     - Distinguish between user and compiler errors
 - [ ] Make strings more concrete

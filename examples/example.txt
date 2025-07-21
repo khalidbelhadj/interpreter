@@ -1,10 +1,15 @@
+f :: () []int {
+    return [1, 2, 3, 4, 5];
+}
+
 A :: struct {
-    a []string = ["hello", "world"],
+    x []int
 }
 
 main :: () unit {
-    let arr [5]int = [1, 2, 3, 4, 5];
-    let xs []int = #slice(arr);
-    #print(xs);
+    let x A = A {};
+    let n int = 10;
+    x.x = #slice(int, 10);
+    #println(x);
 }
 

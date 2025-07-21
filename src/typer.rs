@@ -41,166 +41,120 @@ impl Typer {
     fn type_check_toplevel(&mut self, top_level: &TopLevel) {
         match top_level {
             TopLevel::ProcDecl(decl) => {
-                // Special case for main function
-                if decl.name == "main" {
-                    if !decl.params.is_empty() {
-                        self.add_error(
-                            decl.span,
-                            TypeErrorKind::WrongArgCount {
-                                name: "main".to_string(),
-                                expected: 0,
-                                actual: decl.params.len(),
-                            },
-                        );
-                        return;
-                    }
-
-                    if decl.ret_ty != Type::Unit {
-                        self.add_error(
-                            decl.span,
-                            TypeErrorKind::UnexpectedReturnType {
-                                expected: TypeSet::One(Type::Unit),
-                                actual: decl.ret_ty.clone(),
-                            },
-                        );
-                        return;
-                    }
-                }
-
-                let mut param_types = Vec::new();
-                for (name, ty) in decl.params.iter() {
-                    param_types.push((name.clone(), ty.clone()));
-                }
-
-                self.add_proc(decl);
-                self.type_check_proc(param_types.clone(), &decl.block, decl.ret_ty.clone());
+                self.type_check_proc(decl);
             }
             TopLevel::StructDecl(decl) => {
-                self.add_struct(decl);
-
-                // Check the default values
-                let StructDecl { name, fields, span } = decl;
-                for (ty, default_value) in fields.values() {
-                    let Some(expr) = default_value else { continue };
-                    self.type_check_expr(expr, ty);
-                }
+                self.type_check_struct(decl);
             }
         }
     }
 
-    fn type_infer_struct_field(&mut self, name: String, field: String) -> Option<Type> {
-        let decl = self.table.structs.get(&name);
-        match decl {
-            Some(decl) => match decl.fields.get(&field) {
-                Some(ty) => Some(ty.0.clone()),
-                None => {
-                    // @empty-span
+    fn type_check_proc(&mut self, decl: &ProcDecl) {
+        // Special case for main function
+        if decl.name == "main" {
+            if !decl.params.is_empty() {
+                self.add_error(
+                    decl.span,
+                    TypeErrorKind::WrongArgCount {
+                        name: "main".to_string(),
+                        expected: 0,
+                        actual: decl.params.len(),
+                    },
+                );
+                return;
+            }
+
+            if decl.ret_ty != Type::Unit {
+                self.add_error(
+                    decl.span,
+                    TypeErrorKind::UnexpectedReturnType {
+                        expected: TypeSet::One(Type::Unit),
+                        actual: decl.ret_ty.clone(),
+                    },
+                );
+                return;
+            }
+        }
+
+        let mut param_types = Vec::new();
+        for (name, ty) in decl.params.iter() {
+            self.validate_type(ty.clone());
+            param_types.push((name.clone(), ty.clone()));
+        }
+
+        self.validate_type(decl.ret_ty.clone());
+
+        self.add_proc(decl);
+        self.type_check_block(decl.params.clone(), &decl.block, decl.ret_ty.clone());
+    }
+
+    fn type_check_struct(&mut self, decl: &StructDecl) {
+        self.add_struct(decl);
+
+        // Check the default values
+        let StructDecl { name, fields, span } = decl;
+        for (ty, default_value) in fields.values() {
+            self.validate_type(ty.clone());
+            let Some(expr) = default_value else {
+                continue;
+            };
+            self.type_check_expr(expr, ty);
+        }
+    }
+
+    fn type_check_expr(&mut self, expr: &Expr, target: &Type) {
+        match (expr, target) {
+            (Expr::Lit(Lit::Array(lit, span)), ty) => match ty {
+                Type::Array(elem_ty, length) => {
+                    if *length != lit.len() {
+                        self.add_error(
+                            expr.span(),
+                            TypeErrorKind::UnexpectedType {
+                                expected: target.clone(),
+                                // TODO: Change
+                                actual: TypeSet::One(Type::Array(elem_ty.clone(), lit.len())),
+                            },
+                        );
+                    }
+
+                    for elem in lit.iter() {
+                        self.type_check_expr(elem, elem_ty);
+                    }
+                }
+                Type::Slice(elem_ty) => {
+                    for elem in lit.iter() {
+                        self.type_check_expr(elem, elem_ty);
+                    }
+                }
+                _ => {
                     self.add_error(
-                        Span::empty(),
-                        TypeErrorKind::UnkownStrtructField {
-                            field: field.clone(),
-                            struct_name: decl.name.clone(),
+                        expr.span(),
+                        TypeErrorKind::UnexpectedType {
+                            expected: target.clone(),
+                            // TODO: Change
+                            actual: TypeSet::Text("array literal".to_string()),
                         },
                     );
-                    None
                 }
             },
-            None => {
-                // @empty-span
-                self.add_error(Span::empty(), TypeErrorKind::StructNotDefined);
-                None
-            }
-        }
-    }
-
-    fn type_check_call(&mut self, call: &Call) {
-        let Call { name, args, span } = call;
-        if name == "#print" {
-            for arg in args.iter() {
-                self.type_infer(arg);
-            }
-            return;
-        }
-
-        if name == "#println" {
-            for arg in args.iter() {
-                self.type_infer(arg);
-            }
-            return;
-        }
-
-        if name == "#stack" {
-            return;
-        }
-
-        if name == "#sleep" {
-            let Some(arg) = args.first() else {
-                self.add_error(
-                    *span,
-                    TypeErrorKind::WrongArgCount {
-                        name: "#sleep".to_string(),
-                        expected: 1,
-                        actual: 0,
-                    },
-                );
-                return;
-            };
-
-            self.type_check_expr(arg, &Type::Int);
-            return;
-        }
-
-        if name == "#length" {
-            let Some(arg) = args.first() else {
-                self.add_error(
-                    *span,
-                    TypeErrorKind::WrongArgCount {
-                        name: "#length".to_string(),
-                        expected: 1,
-                        actual: 0,
-                    },
-                );
-                return;
-            };
-
-            match self.type_infer(arg) {
-                Some(Type::Array(elem_ty, _)) | Some(Type::Slice(elem_ty)) => {}
-                Some(_) => {
-                    self.add_error(*span, TypeErrorKind::LengthOfNonArray);
+            _ => {
+                let actual_ty = self.type_infer_expr(expr);
+                if let Some(inferred_ty) = actual_ty {
+                    if inferred_ty != *target {
+                        self.add_error(
+                            expr.span(),
+                            TypeErrorKind::UnexpectedType {
+                                expected: target.clone(),
+                                actual: TypeSet::One(inferred_ty.clone()),
+                            },
+                        );
+                    }
                 }
-                _ => {}
             }
-
-            return;
-        }
-
-        let Some(ProcDecl { params, ret_ty, .. }) = self.table.procs.get(&name.clone()).cloned()
-        else {
-            self.add_error(*span, TypeErrorKind::ProcNotDefined);
-            return;
         };
-
-        if params.len() != args.len() {
-            self.add_error(
-                *span,
-                TypeErrorKind::WrongArgCount {
-                    name: name.clone(),
-                    expected: 0,
-                    actual: params.len(),
-                },
-            );
-            return;
-        }
-
-        for (i, arg) in args.iter().enumerate() {
-            let Some((_, ty)) = params.get(i) else {
-                unreachable!()
-            };
-            self.type_check_expr(arg, ty);
-        }
     }
 
-    fn type_infer(&mut self, expr: &Expr) -> Option<Type> {
+    fn type_infer_expr(&mut self, expr: &Expr) -> Option<Type> {
         match expr {
             Expr::Unit(_) => Some(Type::Unit),
             Expr::Lit(Lit::Bool(_, _)) => Some(Type::Bool),
@@ -224,13 +178,10 @@ impl Typer {
             }
             // TODO: Check that expr is int
             Expr::MakeSlice { ty, expr, span } => Some(Type::Slice(Box::new(ty.clone()))),
-            Expr::Call(call) => {
-                self.type_check_call(call);
-                None
-            }
-            Expr::Ref(expr) => self.type_infer(expr).map(|t| Type::Ref(Box::new(t))),
+            Expr::Call(call) => self.type_infer_call(call),
+            Expr::Ref(expr) => self.type_infer_expr(expr).map(|t| Type::Ref(Box::new(t))),
             Expr::Deref(expr) => {
-                let inner_ty = self.type_infer(expr);
+                let inner_ty = self.type_infer_expr(expr);
                 match inner_ty {
                     Some(Type::Ref(t)) => Some(*t),
                     _ => {
@@ -240,7 +191,7 @@ impl Typer {
                 }
             }
             Expr::Proj { expr, field, span } => {
-                let ty = self.type_infer(expr)?;
+                let ty = self.type_infer_expr(expr)?;
                 match ty {
                     Type::Struct(name) => self.type_infer_struct_field(name, field.clone()),
                     Type::Ref(inner_ty) => {
@@ -258,7 +209,7 @@ impl Typer {
                 }
             }
             Expr::Index { expr, index, span } => {
-                let ty = self.type_infer(expr)?;
+                let ty = self.type_infer_expr(expr)?;
                 match ty {
                     Type::Array(elem_ty, size) => Some(*elem_ty),
                     Type::Slice(elem_ty) => Some(*elem_ty),
@@ -274,7 +225,7 @@ impl Typer {
                     self.type_check_expr(rhs, &Type::Bool);
                     Some(Type::Bool)
                 }
-                UnaryOp::Minus | UnaryOp::Plus => match self.type_infer(rhs) {
+                UnaryOp::Minus | UnaryOp::Plus => match self.type_infer_expr(rhs) {
                     Some(Type::Int) => Some(Type::Int),
                     Some(Type::Float) => Some(Type::Float),
                     Some(ty) => {
@@ -292,7 +243,7 @@ impl Typer {
                     return Some(Type::Bool);
                 }
 
-                let lhs_ty = self.type_infer(lhs)?;
+                let lhs_ty = self.type_infer_expr(lhs)?;
 
                 if op.is_arithmetic() {
                     return if lhs_ty == Type::Int {
@@ -318,10 +269,6 @@ impl Typer {
                 None
             }
         }
-    }
-
-    fn type_check_proc(&mut self, args: Vec<(String, Type)>, block: &Block, ret_ty: Type) {
-        self.type_check_block(args, block, ret_ty);
     }
 
     fn type_check_block(
@@ -353,18 +300,18 @@ impl Typer {
                     expr,
                     span,
                 } => {
-                    // @invalid-annotations
+                    self.validate_type(ty.clone());
                     self.type_check_expr(expr, ty);
                     self.define(name, ty.clone());
                 }
                 Stmt::Assign { lhs, rhs, span } => {
-                    let Some(lhs_ty) = self.type_infer(lhs) else {
+                    let Some(lhs_ty) = self.type_infer_expr(lhs) else {
                         return false;
                     };
                     self.type_check_expr(rhs, &lhs_ty);
                 }
                 Stmt::Call(call) => {
-                    self.type_check_call(call);
+                    self.type_infer_call(call);
                 }
                 Stmt::If {
                     cond,
@@ -454,41 +401,132 @@ impl Typer {
         has_returned
     }
 
-    fn type_check_expr(&mut self, expr: &Expr, target: &Type) {
-        match (expr, target) {
-            (Expr::Lit(Lit::Array(lit, span)), ty) => match ty {
-                Type::Array(elem_ty, _) | Type::Slice(elem_ty) => {
-                    for elem in lit.iter() {
-                        self.type_check_expr(elem, elem_ty);
-                    }
-                }
-                _ => {
+    fn type_infer_struct_field(&mut self, name: String, field: String) -> Option<Type> {
+        let decl = self.table.structs.get(&name);
+        match decl {
+            Some(decl) => match decl.fields.get(&field) {
+                Some(ty) => Some(ty.0.clone()),
+                None => {
+                    // @empty-span
                     self.add_error(
-                        expr.span(),
-                        TypeErrorKind::UnexpectedType {
-                            expected: target.clone(),
-                            // TODO: Change
-                            actual: TypeSet::Text("array literal".to_string()),
+                        Span::empty(),
+                        TypeErrorKind::UnkownStrtructField {
+                            field: field.clone(),
+                            struct_name: decl.name.clone(),
                         },
                     );
+                    None
                 }
             },
-            _ => {
-                let actual_ty = self.type_infer(expr);
-                // @invalid-annotations
-                if let Some(inferred_ty) = actual_ty {
-                    if inferred_ty != *target {
-                        self.add_error(
-                            expr.span(),
-                            TypeErrorKind::UnexpectedType {
-                                expected: target.clone(),
-                                actual: TypeSet::One(inferred_ty.clone()),
-                            },
-                        );
-                    }
-                }
+            None => {
+                // @empty-span
+                self.add_error(Span::empty(), TypeErrorKind::StructNotDefined);
+                None
             }
+        }
+    }
+
+    fn type_infer_call(&mut self, call: &Call) -> Option<Type> {
+        let Call { name, args, span } = call;
+        if name == "#print" {
+            for arg in args.iter() {
+                self.type_infer_expr(arg);
+            }
+            return Some(Type::Unit);
+        }
+
+        if name == "#println" {
+            for arg in args.iter() {
+                self.type_infer_expr(arg);
+            }
+            return Some(Type::Unit);
+        }
+
+        if name == "#stack" {
+            return Some(Type::Unit);
+        }
+
+        if name == "#sleep" {
+            let Some(arg) = args.first() else {
+                self.add_error(
+                    *span,
+                    TypeErrorKind::WrongArgCount {
+                        name: "#sleep".to_string(),
+                        expected: 1,
+                        actual: 0,
+                    },
+                );
+                return None;
+            };
+
+            self.type_check_expr(arg, &Type::Int);
+            return Some(Type::Unit);
+        }
+
+        if name == "#length" {
+            let Some(arg) = args.first() else {
+                self.add_error(
+                    *span,
+                    TypeErrorKind::WrongArgCount {
+                        name: "#length".to_string(),
+                        expected: 1,
+                        actual: 0,
+                    },
+                );
+                return None;
+            };
+
+            match self.type_infer_expr(arg) {
+                Some(Type::Array(elem_ty, _)) | Some(Type::Slice(elem_ty)) => {}
+                Some(_) => {
+                    self.add_error(*span, TypeErrorKind::LengthOfNonArray);
+                }
+                _ => {}
+            }
+
+            return Some(Type::Int);
+        }
+
+        let Some(ProcDecl { params, ret_ty, .. }) = self.table.procs.get(&name.clone()).cloned()
+        else {
+            self.add_error(*span, TypeErrorKind::ProcNotDefined);
+            return None;
         };
+
+        if params.len() != args.len() {
+            self.add_error(
+                *span,
+                TypeErrorKind::WrongArgCount {
+                    name: name.clone(),
+                    expected: 0,
+                    actual: params.len(),
+                },
+            );
+            return None;
+        }
+
+        for (i, arg) in args.iter().enumerate() {
+            let Some((_, ty)) = params.get(i) else {
+                unreachable!()
+            };
+            self.type_check_expr(arg, ty);
+        }
+
+        Some(ret_ty)
+    }
+
+    fn validate_type(&mut self, ty: Type) {
+        match ty {
+            Type::Struct(name) => {
+                if !self.table.structs.contains_key(&name) {
+                    self.add_error(Span::empty(), TypeErrorKind::InvalidType);
+                };
+            }
+            Type::Array(elem_ty, _) => self.validate_type(*elem_ty.clone()),
+            Type::Slice(elem_ty) => self.validate_type(*elem_ty.clone()),
+            Type::Ref(ty) => self.validate_type(*ty.clone()),
+            _ => {}
+        }
     }
 
     fn add_error(&mut self, span: Span, kind: TypeErrorKind) {

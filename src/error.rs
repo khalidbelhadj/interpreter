@@ -52,16 +52,6 @@ pub enum TypeErrorKind {
         expected: Type,
         actual: TypeSet,
     },
-    UnexpectedArrayLength {
-        expected: usize,
-        actual: usize,
-    },
-
-    UnexpectedArrayType {
-        expected: Type,
-        actual: Type,
-    },
-
     // Definition
     ProcAlreadyDefined,
     StructAlreadyDefined,
@@ -97,6 +87,7 @@ pub enum TypeErrorKind {
     NotAbleToInferType,
     UnreachableCodeAfterReturn,
     LengthOfNonArray,
+    InvalidType,
 }
 
 pub enum TypeSet {

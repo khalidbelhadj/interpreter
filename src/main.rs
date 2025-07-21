@@ -68,13 +68,10 @@ fn main() {
     }
 
     let end = SystemTime::now();
-    let Ok(duration) = end.duration_since(start) else {
+    let Ok(dur_tok) = end.duration_since(start) else {
         error!("Duration failed");
         exit(1);
     };
-    if args.time {
-        println!("Tokenised in {}s", duration.as_secs_f64());
-    }
 
     if args.tokens {
         for token in tokeniser.tokens.iter() {
@@ -116,14 +113,10 @@ fn main() {
     }
 
     let end = SystemTime::now();
-    let Ok(duration) = end.duration_since(start) else {
+    let Ok(dur_parse) = end.duration_since(start) else {
         error!("Duration failed");
         exit(1);
     };
-
-    if args.time {
-        println!("Parsed in {}s", duration.as_secs_f64());
-    }
 
     if args.ast {
         println!("{:#?}", parser.program);
@@ -137,13 +130,11 @@ fn main() {
     let mut tokeniser = Tokeniser::from_file(file_path.clone());
     typer.type_check();
     let end = SystemTime::now();
-    let Ok(duration) = end.duration_since(start) else {
+
+    let Ok(dur_type) = end.duration_since(start) else {
         error!("Duration failed");
         exit(1);
     };
-    if args.time {
-        println!("Type checked in {}s", duration.as_secs_f64());
-    }
 
     for e in typer.errors.iter() {
         match &e.kind {
@@ -155,14 +146,6 @@ fn main() {
             }
             TypeErrorKind::UnexpectedType { expected, actual } => error!(
                 "{}:{}:{}: Mismatched types\n    Expected: {}\n    Actual  : {}",
-                file_path, e.span.start_line, e.span.start_column, expected, actual
-            ),
-            TypeErrorKind::UnexpectedArrayLength { expected, actual } => error!(
-                "{}:{}:{}: Expected array of length {}, got {}",
-                file_path, e.span.start_line, e.span.start_column, expected, actual
-            ),
-            TypeErrorKind::UnexpectedArrayType { expected, actual } => error!(
-                "{}:{}:{}: Expected array type {}, got {}",
                 file_path, e.span.start_line, e.span.start_column, expected, actual
             ),
             TypeErrorKind::ProcAlreadyDefined => error!(
@@ -237,6 +220,10 @@ fn main() {
                 "{}:{}:{}: Can't find length of non-array type",
                 file_path, e.span.start_line, e.span.start_column,
             ),
+            TypeErrorKind::InvalidType => error!(
+                "{}:{}:{}: Invalid type",
+                file_path, e.span.start_line, e.span.start_column,
+            ),
         }
     }
 
@@ -270,8 +257,14 @@ fn main() {
     }
 
     if args.time {
-        println!("Compiled in {}s", duration.as_secs_f64());
+        // println!("Compiled in {}s", duration.as_secs_f64());
+        println!("total:            {:.3}ms", 1000.0 * duration.as_secs_f64());
+        println!("    tokeniser:    {:.3}ms", 1000.0 * dur_tok.as_secs_f64());
+        println!("    parser:       {:.3}ms", 1000.0 * dur_parse.as_secs_f64());
+        println!("    type_checker: {:.3}ms", 1000.0 * dur_type.as_secs_f64());
     }
+
+    
 
     println!("===================================\n");
     let mut evaluator = Evaluator::new(typer.table);
