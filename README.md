@@ -223,12 +223,16 @@ This is a multi line comment
 - [x] Make fields optional in struct fields
     - This was a bit sketchy, maybe go over how types are passed to the evaluator. Might be useful in the future for other things.
 - [x] Negative numbers
-- [ ] Start implementing test cases
 - [x] @invalid-annotations Annotations can be invalid, such as undefined struct
-- [ ] BUG: Return types not checked properly, Expect array return slice works
+- [x] @duplicate-field if a duplicate field is declared in a struct, we don't error
+- [x] Return types not checked properly, Expect array return slice works
+    - not sure what this is, probably need to start documenting examples
 - [ ] HACK: @empty-spans Remove empty spans
 - [ ] HACK: @ambiguous-slice-literal Array/slice literals are hard to tell apart
-- [ ] TODO: Add span to slices
+- [ ] HACK: @false-unreachable
+    - Marked as unreachable, but actually reached
+    - We fixed this in a hacky way by changing peek_type
+- [ ] Add span to slices
 - [ ] Stack trace on panic in evaluation
     - Distinguish between user and compiler errors
 - [ ] Make strings more concrete

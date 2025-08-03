@@ -38,8 +38,9 @@ pub struct StructDecl {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ProcDecl {
     pub name: String,
-    pub params: Vec<(String, Type)>,
+    pub params: Vec<(String, Type, Span)>,
     pub ret_ty: Type,
+    pub ret_ty_span: Span,
     pub block: Block,
     pub span: Span,
 }
@@ -131,7 +132,9 @@ pub enum Expr {
         span: Span,
     },
     Call(Call),
+    // TODO: Add span
     Ref(Box<Expr>),
+    // TODO: Add span
     Deref(Box<Expr>),
 }
 
@@ -178,7 +181,7 @@ impl Display for Lit {
         match self {
             Lit::Int(n, _) => write!(f, "{}", n),
             Lit::Float(n, _) => write!(f, "{}", n),
-            Lit::Str(s, _) => write!(f, "\"{}\"", s),
+            Lit::String(s, _) => write!(f, "\"{}\"", s),
             Lit::Bool(b, _) => write!(f, "{}", b),
             Lit::Struct(n, s, _) => write!(f, "{:?}", s),
             Lit::Array(a, _) => write!(f, "{:?}", a),
@@ -252,7 +255,7 @@ impl Display for Type {
 pub enum Lit {
     Int(i64, Span),
     Float(f64, Span),
-    Str(String, Span),
+    String(String, Span),
     Bool(bool, Span),
     Struct(String, HashMap<String, Expr>, Span),
     Array(Vec<Expr>, Span),
@@ -263,7 +266,7 @@ impl Debug for Lit {
         match self {
             Lit::Int(i, span) => write!(f, "{i}"),
             Lit::Float(fl, span) => write!(f, "{fl}"),
-            Lit::Str(s, span) => write!(f, "{s}"),
+            Lit::String(s, span) => write!(f, "{s}"),
             Lit::Bool(b, span) => write!(f, "{b}"),
             Lit::Struct(name, hash_map, span) => write!(f, "{hash_map:#?}"),
             Lit::Array(vec, span) => write!(f, "{vec:#?}"),
@@ -368,7 +371,7 @@ impl Lit {
         match self {
             Lit::Int(_, span) => span,
             Lit::Float(_, span) => span,
-            Lit::Str(_, span) => span,
+            Lit::String(_, span) => span,
             Lit::Bool(_, span) => span,
             Lit::Struct(name, hash_map, span) => span,
             Lit::Array(exprs, span) => span,

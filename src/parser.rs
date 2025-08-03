@@ -30,17 +30,16 @@ impl Parser {
             let name = self.consume_identifier()?;
 
             // Consume compile time assign operator
-            self.consume(TokenType::Colon)?;
-            self.consume(TokenType::Colon)?;
+            self.consume(TokenType::ColonColon)?;
 
             let tok = self.peek_type();
             match tok {
-                // Proc decleration
+                // Proc declaration
                 TokenType::LeftParen => {
                     let proc_decl = self.parse_proc_decl(name)?;
                     self.program.top_levels.push(TopLevel::ProcDecl(proc_decl));
                 }
-                // Struct decleration
+                // Struct declaration
                 TokenType::Struct => {
                     let struct_decl = self.parse_struct_decl(name)?;
                     self.program
@@ -50,7 +49,7 @@ impl Parser {
                 _ => {
                     return Err(ParseError {
                         kind: ParseErrorKind::UnexpectedToken {
-                            expected: TokenSet::Text("top-level".to_string()),
+                            expected: TokenSet::Text("declaration".to_string()),
                             actual: self.peek_type(),
                         },
                         span: self.peek_span(),
@@ -83,6 +82,12 @@ impl Parser {
                 default_value = Some(self.parse_expr()?);
             }
 
+            if fields.contains_key(&field_name) {
+                return Err(ParseError {
+                    kind: ParseErrorKind::DuplicateField { field: field_name },
+                    span: Span::join(start_span, self.peek_span()),
+                });
+            }
             fields.insert(field_name, (field_ty, default_value));
 
             // This ensures that there is no trailing comma
@@ -112,9 +117,11 @@ impl Parser {
             if self.peek_type() == TokenType::RightParen {
                 break;
             }
+            let start_span = self.peek_span();
             let param_name = self.consume_identifier()?;
             let param_ty = self.parse_type()?;
-            params.push((param_name, param_ty));
+            let end_span = self.peek_span();
+            params.push((param_name, param_ty, Span::join(start_span, end_span)));
 
             // Right paren or comma
             if self.peek_type() == TokenType::RightParen {
@@ -126,7 +133,9 @@ impl Parser {
 
         self.consume(TokenType::RightParen)?;
 
+        let ret_start_span = self.peek_span();
         let ret_ty = self.parse_type()?;
+        let ret_end_span = self.peek_span();
         let block = self.parse_block()?;
         let end_span = block.span;
 
@@ -134,6 +143,7 @@ impl Parser {
             name,
             params,
             ret_ty,
+            ret_ty_span: Span::join(ret_start_span, ret_end_span),
             block,
             span: Span::join(start_span, end_span),
         })
@@ -306,7 +316,16 @@ impl Parser {
                 }
                 // Try to parse expression for call or assignment
                 _ => {
-                    let expr = self.parse_expr()?;
+                    // TODO: Refactor this
+                    let Ok(expr) = self.parse_expr() else {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::UnexpectedToken {
+                                expected: TokenSet::Text("statement".to_string()),
+                                actual: self.peek_type(),
+                            },
+                            span: self.peek_span(),
+                        });
+                    };
                     match self.peek_type() {
                         TokenType::Semicolon => {
                             // Check that it's a procedure call
@@ -317,7 +336,7 @@ impl Parser {
                             } else {
                                 return Err(ParseError {
                                     kind: ParseErrorKind::UnexpectedToken {
-                                        expected: TokenSet::Text("statement".to_string()),
+                                        expected: TokenSet::Text("procedure call".to_string()),
                                         actual: self.peek_type(),
                                     },
                                     span: self.peek_span(),
@@ -564,44 +583,53 @@ impl Parser {
 
     fn parse_prefix(&mut self, is_condition: bool) -> Result<Expr, ParseError> {
         use TokenType::*;
-
         match self.peek_type() {
             Not => {
+                let start_span = self.peek_span();
                 self.advance();
                 let rhs = self.parse_prefix(is_condition)?;
+                let end_span = rhs.span();
 
-                // TODO: @empty-span
                 return Ok(Expr::Unary {
                     op: UnaryOp::Not,
                     rhs: Box::new(rhs),
-                    span: Span::empty(),
+                    span: Span::join(start_span, end_span),
                 });
             }
             Minus => {
+                let start_span = self.peek_span();
                 self.advance();
                 let rhs = self.parse_prefix(is_condition)?;
+                let end_span = rhs.span();
+
                 return Ok(Expr::Unary {
                     op: UnaryOp::Minus,
                     rhs: Box::new(rhs),
-                    span: Span::empty(),
+                    span: Span::join(start_span, end_span),
                 });
             }
             Plus => {
+                let start_span = self.peek_span();
                 self.advance();
                 let rhs = self.parse_prefix(is_condition)?;
+                let end_span = rhs.span();
+
                 return Ok(Expr::Unary {
                     op: UnaryOp::Plus,
                     rhs: Box::new(rhs),
-                    span: Span::empty(),
+                    span: Span::join(start_span, end_span),
                 });
             }
             Ampersand => {
+                let start_span = self.peek_span();
                 self.advance();
                 let rhs = self.parse_prefix(is_condition)?;
+                let end_span = rhs.span();
+
                 if rhs.is_rvalue() {
                     return Err(ParseError {
                         kind: ParseErrorKind::InvalidReferenceTarget,
-                        span: self.peek_span(),
+                        span: Span::join(start_span, end_span),
                     });
                 }
                 return Ok(Expr::Ref(Box::new(rhs)));
@@ -620,13 +648,14 @@ impl Parser {
     fn parse_postfix(&mut self, is_condition: bool) -> Result<Expr, ParseError> {
         let mut lhs = self.parse_primary(is_condition)?;
 
+        use TokenType::*;
         loop {
             lhs = match self.peek_type() {
-                TokenType::LeftBracket => {
+                LeftBracket => {
                     self.advance();
                     let index_expr = self.parse_expr()?;
                     let end_span = self.peek_span();
-                    self.consume(TokenType::RightBracket)?;
+                    self.consume(RightBracket)?;
                     let start_span = lhs.span();
                     Expr::Index {
                         expr: Box::new(lhs),
@@ -634,7 +663,7 @@ impl Parser {
                         span: Span::join(start_span, end_span),
                     }
                 }
-                TokenType::Dot => {
+                Dot => {
                     self.advance();
                     let field = self.consume_identifier()?;
                     let end_span = self.peek_span();
@@ -653,38 +682,39 @@ impl Parser {
     }
 
     fn parse_primary(&mut self, is_condition: bool) -> Result<Expr, ParseError> {
+        use TokenType::*;
         match self.peek_type() {
-            TokenType::IntegerLiteral(i) => {
+            IntegerLiteral(i) => {
                 let span = self.peek_span();
                 self.advance();
                 Ok(Expr::Lit(Lit::Int(i, span)))
             }
-            TokenType::FloatLiteral(f) => {
+            FloatLiteral(f) => {
                 let span = self.peek_span();
                 self.advance();
                 Ok(Expr::Lit(Lit::Float(f, span)))
             }
-            TokenType::StringLiteral(s) => {
+            StringLiteral(s) => {
                 let span = self.peek_span();
                 self.advance();
-                Ok(Expr::Lit(Lit::Str(s, span)))
+                Ok(Expr::Lit(Lit::String(s, span)))
             }
-            TokenType::True => {
+            True => {
                 let span = self.peek_span();
                 self.advance();
                 Ok(Expr::Lit(Lit::Bool(true, span)))
             }
-            TokenType::False => {
+            False => {
                 let span = self.peek_span();
                 self.advance();
                 Ok(Expr::Lit(Lit::Bool(false, span)))
             }
-            TokenType::Ident(_) | TokenType::Hash => {
+            Ident(_) | Hash => {
                 // Identifier
                 let start_span = self.peek_span();
-                let mut name = String::new();
+                let mut name = "".to_string();
 
-                if let TokenType::Hash = self.peek_type() {
+                if let Hash = self.peek_type() {
                     self.advance();
                     name.push('#');
                 }
@@ -692,19 +722,20 @@ impl Parser {
                 name.push_str(&self.consume_identifier()?);
 
                 match self.peek_type() {
-                    TokenType::LeftParen => {
+                    LeftParen => {
                         if name == "#slice" {
-                            self.consume(TokenType::LeftParen)?;
+                            self.consume(LeftParen)?;
                             let ty = self.parse_type()?;
-                            self.consume(TokenType::Comma)?;
+                            self.consume(Comma)?;
                             let expr = self.parse_expr()?;
-                            self.consume(TokenType::RightParen)?;
+                            self.consume(RightParen)?;
+                            let end_span = self.peek_span();
 
                             // TODO: @empty-span
                             return Ok(Expr::MakeSlice {
                                 ty,
                                 expr: Box::new(expr),
-                                span: Span::empty(),
+                                span: Span::join(start_span, end_span),
                             });
                         }
 
@@ -713,15 +744,10 @@ impl Parser {
                         Ok(Expr::Call(Call {
                             name,
                             args,
-                            span: Span::new(
-                                start_span.start_line,
-                                start_span.start_column,
-                                end_span.end_line,
-                                end_span.end_column,
-                            ),
+                            span: Span::join(start_span, end_span),
                         }))
                     }
-                    TokenType::LeftBrace => {
+                    LeftBrace => {
                         // To disambiguate between struct literal and blocks
                         if is_condition {
                             return Ok(Expr::Var {
@@ -744,13 +770,13 @@ impl Parser {
                     }),
                 }
             }
-            TokenType::LeftParen => {
+            LeftParen => {
                 self.advance();
                 let inner_expr = self.parse_expr();
-                self.consume(TokenType::RightParen)?;
+                self.consume(RightParen)?;
                 inner_expr
             }
-            TokenType::LeftBracket => self.parse_array_literal(),
+            LeftBracket => self.parse_array_literal(),
             _ => Err(ParseError {
                 kind: ParseErrorKind::UnexpectedToken {
                     expected: TokenSet::Text("primary expression".to_string()),
@@ -784,22 +810,29 @@ impl Parser {
         )))
     }
 
-    fn peek(&self) -> Token {
-        self.tokens
-            .get(self.current)
-            .cloned()
-            .unwrap_or_else(|| unreachable!())
+    fn peek(&self) -> Option<Token> {
+        // @false-unreachable, identifier at the end of file
+        self.tokens.get(self.current).cloned()
     }
 
     fn peek_type(&self) -> TokenType {
-        self.peek().token_type
+        if let Some(current) = self.tokens.get(self.current) {
+            return current.token_type.clone();
+        };
+
+        TokenType::EOF
     }
 
     fn peek_span(&self) -> Span {
-        self.tokens
-            .get(self.current)
-            .unwrap_or_else(|| unreachable!())
-            .span
+        if let Some(current) = self.tokens.get(self.current) {
+            return current.span;
+        };
+
+        if let Some(last) = self.tokens.last() {
+            return last.span;
+        }
+
+        Span::empty()
     }
 
     fn advance(&mut self) {

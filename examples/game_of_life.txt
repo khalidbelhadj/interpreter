@@ -40,10 +40,10 @@ update :: (data [][]bool) unit {
             new_data[i][j] = data[i][j];
 
             let ncount int =
-                get_neighbour(data, i, j - 1) +
-                get_neighbour(data, i, j + 1) +
-                get_neighbour(data, i - 1, j) +
-                get_neighbour(data, i + 1, j) +
+                get_neighbour(data, i, j - 1)     +
+                get_neighbour(data, i, j + 1)     +
+                get_neighbour(data, i - 1, j)     +
+                get_neighbour(data, i + 1, j)     +
                 get_neighbour(data, i - 1, j - 1) +
                 get_neighbour(data, i + 1, j - 1) +
                 get_neighbour(data, i - 1, j + 1) +
@@ -63,6 +63,7 @@ update :: (data [][]bool) unit {
         }
     }
 
+    // Copy back new data
     for i in #range(height) {
         for j in #range(width) {
             data[i][j] = new_data[i][j];
@@ -88,10 +89,10 @@ main :: () unit {
     render(data);
     #println();
 
-    for i in #range(50) {
+    for i in #range(100) {
         update(data);
         render(data);
         #println();
-        #sleep(200);
+        #sleep(100);
     }
 }

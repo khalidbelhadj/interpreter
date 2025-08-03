@@ -12,6 +12,9 @@ pub enum ParseErrorKind {
     NonIntLitArrayLength,
     InvalidLeftHandSide,
     InvalidReferenceTarget,
+    DuplicateField {
+        field: String,
+    },
 }
 
 #[derive(Debug)]
@@ -87,7 +90,11 @@ pub enum TypeErrorKind {
     NotAbleToInferType,
     UnreachableCodeAfterReturn,
     LengthOfNonArray,
-    InvalidType,
+    InvalidType {
+        ty: Type,
+        message: String,
+    },
+    NoMainProc,
 }
 
 pub enum TypeSet {

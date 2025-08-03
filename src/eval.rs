@@ -501,7 +501,7 @@ impl Evaluator {
             ));
         }
 
-        for ((name, ty), arg_value) in proc.params.iter().zip(args.iter()) {
+        for ((name, ty, _), arg_value) in proc.params.iter().zip(args.iter()) {
             let mut val = arg_value;
             // @ambiguous-slice-literal
             if let Type::Slice(_) = ty {
@@ -531,12 +531,12 @@ impl Evaluator {
         match lit {
             Lit::Int(n, _) => Ok(Value::Int(*n)),
             Lit::Float(f, _) => Ok(Value::Float(*f)),
-            Lit::Str(s, _) => Ok(Value::Str(s.clone())),
+            Lit::String(s, _) => Ok(Value::Str(s.clone())),
             Lit::Bool(b, _) => Ok(Value::Bool(*b)),
 
             Lit::Struct(name, lit_fields, _) => {
                 let Some(decl) = self.table.structs.get(name) else {
-                    return Err(format!("Struct name \"{name}\" is not defined"));
+                    return Err(format!("Struct name {name} is not defined"));
                 };
 
                 let mut struct_fields = HashMap::new();

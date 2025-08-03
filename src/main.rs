@@ -3,6 +3,7 @@
 pub mod ast;
 pub mod error;
 pub mod eval;
+pub mod gen;
 pub mod parser;
 pub mod token;
 pub mod tokeniser;
@@ -10,6 +11,7 @@ pub mod typer;
 
 use crate::error::*;
 use crate::eval::Evaluator;
+use crate::gen::generate_c_code;
 use crate::parser::*;
 use crate::tokeniser::*;
 use crate::typer::*;
@@ -39,7 +41,7 @@ fn main() {
     if let Err(err) = tokeniser.tokenise() {
         match err.kind {
             token::LexicalErrorKind::UnexpectedCharacter(c) => error!(
-                "{}:{}:{}: Unexpected character {c}",
+                "{}:{}:{}: Unexpected character '{c}'",
                 file_path, err.span.start_line, err.span.start_column
             ),
             token::LexicalErrorKind::UnterminatedString => error!(
@@ -59,7 +61,7 @@ fn main() {
                 file_path, err.span.start_line, err.span.start_column
             ),
             token::LexicalErrorKind::InvalidIdent { name } => error!(
-                "{}:{}:{}: Invalid identifier \"{}\"",
+                "{}:{}:{}: Invalid identifier `{}`",
                 file_path, err.span.start_line, err.span.start_column, name
             ),
         }
@@ -107,6 +109,10 @@ fn main() {
             ParseErrorKind::InvalidReferenceTarget => error!(
                 "{}:{}:{}: Invalid reference target",
                 file_path, err.span.start_line, err.span.start_column
+            ),
+            ParseErrorKind::DuplicateField { field } => error!(
+                "{}:{}:{}: Duplicate field `{}` in struct declaration",
+                file_path, err.span.start_line, err.span.start_column, field
             ),
         }
         exit(1);
@@ -169,7 +175,7 @@ fn main() {
                 file_path, e.span.start_line, e.span.start_column
             ),
             TypeErrorKind::VarNotDefined { name } => error!(
-                "{}:{}:{}: Variable \"{name}\" not defined",
+                "{}:{}:{}: Variable `{name}` not defined",
                 file_path, e.span.start_line, e.span.start_column
             ),
             TypeErrorKind::ProjectingNonStruct => error!(
@@ -197,7 +203,7 @@ fn main() {
                 file_path, e.span.start_line, e.span.start_column
             ),
             TypeErrorKind::UnkownStrtructField { field, struct_name } => error!(
-                "{}:{}:{}: Unkown field \"{}\" in struct literal of type {}",
+                "{}:{}:{}: Unkown field `{}` in struct literal of type {}",
                 file_path, e.span.start_line, e.span.start_column, field, struct_name
             ),
             TypeErrorKind::WrongArgCount {
@@ -220,8 +226,12 @@ fn main() {
                 "{}:{}:{}: Can't find length of non-array type",
                 file_path, e.span.start_line, e.span.start_column,
             ),
-            TypeErrorKind::InvalidType => error!(
-                "{}:{}:{}: Invalid type",
+            TypeErrorKind::InvalidType { ty, message } => error!(
+                "{}:{}:{}: Invalid type {ty}: {message}",
+                file_path, e.span.start_line, e.span.start_column,
+            ),
+            TypeErrorKind::NoMainProc => error!(
+                "{}:{}:{}: No main procedure",
                 file_path, e.span.start_line, e.span.start_column,
             ),
         }
@@ -260,11 +270,17 @@ fn main() {
         // println!("Compiled in {}s", duration.as_secs_f64());
         println!("total:            {:.3}ms", 1000.0 * duration.as_secs_f64());
         println!("    tokeniser:    {:.3}ms", 1000.0 * dur_tok.as_secs_f64());
-        println!("    parser:       {:.3}ms", 1000.0 * dur_parse.as_secs_f64());
+        println!(
+            "    parser:       {:.3}ms",
+            1000.0 * dur_parse.as_secs_f64()
+        );
         println!("    type_checker: {:.3}ms", 1000.0 * dur_type.as_secs_f64());
     }
 
-    
+    // let c_code = generate_c_code(typer.table);
+    // let mut file = std::fs::File::create("output.c").unwrap();
+    // file.write_all(c_code.as_bytes());
+    // return;
 
     println!("===================================\n");
     let mut evaluator = Evaluator::new(typer.table);

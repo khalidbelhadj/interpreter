@@ -1,15 +1,18 @@
-f :: () []int {
-    return [1, 2, 3, 4, 5];
+
+h :: () unit {
+    let x []int = [1, 2, 3];
+    #println(x[3]);
 }
 
-A :: struct {
-    x []int
+g :: () unit {
+    h();
 }
+
+f :: () unit {
+    g();
+}
+
 
 main :: () unit {
-    let x A = A {};
-    let n int = 10;
-    x.x = #slice(int, 10);
-    #println(x);
+    f();
 }
-

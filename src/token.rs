@@ -18,14 +18,11 @@ pub enum TokenType {
     In,
     True,
     False,
-
-    // Types
     Int,
     Float,
     String,
     Bool,
     Unit,
-
     And,
     Or,
     LeftBracket,
@@ -36,7 +33,7 @@ pub enum TokenType {
     Star,
     Slash,
     Equal,
-    Colon,
+    ColonColon,
     Dot,
     Comma,
     Gt,
@@ -49,13 +46,10 @@ pub enum TokenType {
     Hash,
     QuestionMark,
     Ampersand,
-
     LeftParen,
     RightParen,
     LeftBrace,
     RightBrace,
-
-    // Literals
     Ident(String),
     IntegerLiteral(i64),
     StringLiteral(String),
@@ -98,7 +92,7 @@ impl PartialEq for TokenType {
             (TokenType::Star, TokenType::Star) => true,
             (TokenType::Slash, TokenType::Slash) => true,
             (TokenType::Equal, TokenType::Equal) => true,
-            (TokenType::Colon, TokenType::Colon) => true,
+            (TokenType::ColonColon, TokenType::ColonColon) => true,
             (TokenType::Dot, TokenType::Dot) => true,
             (TokenType::Comma, TokenType::Comma) => true,
             (TokenType::Gt, TokenType::Gt) => true,
@@ -126,6 +120,7 @@ impl Eq for TokenType {}
 
 impl Display for TokenType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut s = String::new();
         let string = match self {
             TokenType::Struct => "struct",
             TokenType::Let => "let",
@@ -153,7 +148,7 @@ impl Display for TokenType {
             TokenType::Star => "*",
             TokenType::Slash => "/",
             TokenType::Equal => "=",
-            TokenType::Colon => ":",
+            TokenType::ColonColon => "::",
             TokenType::Dot => ".",
             TokenType::Comma => ",",
             TokenType::Gt => ">",
@@ -169,7 +164,11 @@ impl Display for TokenType {
             TokenType::RightParen => ")",
             TokenType::LeftBrace => "{",
             TokenType::RightBrace => "}",
-            TokenType::Ident(_) => "identifier",
+            TokenType::Ident(name) => {
+                // HACK: this is so that the string reference lives long enough
+                s.push_str(format!("identifier `{name}`").as_str());
+                s.as_str()
+            }
             TokenType::IntegerLiteral(_) => "int",
             TokenType::StringLiteral(_) => "string literal",
             TokenType::FloatLiteral(_) => "float",

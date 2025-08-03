@@ -36,6 +36,12 @@ impl Typer {
         for top_level in top_levels.iter() {
             self.type_check_toplevel(top_level);
         }
+
+        // Check for main function
+        if !self.table.procs.contains_key("main") {
+            // @empty-span
+            self.add_error(Span::empty(), TypeErrorKind::NoMainProc);
+        }
     }
 
     fn type_check_toplevel(&mut self, top_level: &TopLevel) {
@@ -77,15 +83,20 @@ impl Typer {
         }
 
         let mut param_types = Vec::new();
-        for (name, ty) in decl.params.iter() {
-            self.validate_type(ty.clone());
+        for (name, ty, span) in decl.params.iter() {
+            self.validate_type(ty.clone(), *span);
             param_types.push((name.clone(), ty.clone()));
         }
 
-        self.validate_type(decl.ret_ty.clone());
+        self.validate_type(decl.ret_ty.clone(), decl.ret_ty_span);
 
         self.add_proc(decl);
-        self.type_check_block(decl.params.clone(), &decl.block, decl.ret_ty.clone());
+        self.enter_scope();
+        for (name, ty, span) in decl.params.clone() {
+            self.define(&name, ty, span);
+        }
+        self.type_check_block(&decl.block, decl.ret_ty.clone());
+        self.exit_scope();
     }
 
     fn type_check_struct(&mut self, decl: &StructDecl) {
@@ -94,7 +105,8 @@ impl Typer {
         // Check the default values
         let StructDecl { name, fields, span } = decl;
         for (ty, default_value) in fields.values() {
-            self.validate_type(ty.clone());
+            // @empty-span
+            self.validate_type(ty.clone(), Span::empty());
             let Some(expr) = default_value else {
                 continue;
             };
@@ -160,7 +172,7 @@ impl Typer {
             Expr::Lit(Lit::Bool(_, _)) => Some(Type::Bool),
             Expr::Lit(Lit::Int(_, _)) => Some(Type::Int),
             Expr::Lit(Lit::Float(_, _)) => Some(Type::Float),
-            Expr::Lit(Lit::Str(_, _)) => Some(Type::Str),
+            Expr::Lit(Lit::String(_, _)) => Some(Type::Str),
             Expr::Lit(Lit::Struct(name, lit, lit_span)) => {
                 let Some(decl) = self.table.structs.get(name) else {
                     self.add_error(*lit_span, TypeErrorKind::StructNotDefined);
@@ -192,11 +204,13 @@ impl Typer {
             }
             Expr::Proj { expr, field, span } => {
                 let ty = self.type_infer_expr(expr)?;
+                let span = expr.span();
                 match ty {
-                    Type::Struct(name) => self.type_infer_struct_field(name, field.clone()),
+                    Type::Struct(name) => self.type_infer_struct_field(name, field.clone(), span),
                     Type::Ref(inner_ty) => {
+                        let span = expr.span();
                         if let Type::Struct(name) = *inner_ty {
-                            self.type_infer_struct_field(name, field.clone())
+                            self.type_infer_struct_field(name, field.clone(), span)
                         } else {
                             self.add_error(expr.span(), TypeErrorKind::ProjectingNonStructRef);
                             None
@@ -234,7 +248,6 @@ impl Typer {
                     }
                     _ => None,
                 },
-                UnaryOp::Plus => todo!(),
             },
             Expr::Binary { lhs, op, rhs, span } => {
                 if op.is_logical() {
@@ -273,15 +286,15 @@ impl Typer {
 
     fn type_check_block(
         &mut self,
-        scope: Vec<(String, Type)>,
+        // scope: Vec<(String, Type)>,
         block: &Block,
         ret_ty: Type,
     ) -> bool {
         self.enter_scope();
 
-        for (name, ty) in scope.iter() {
-            self.define(name, ty.clone());
-        }
+        // for (name, ty) in scope.iter() {
+        //     self.define(name, ty.clone());
+        // }
 
         let mut has_returned = false;
 
@@ -300,9 +313,11 @@ impl Typer {
                     expr,
                     span,
                 } => {
-                    self.validate_type(ty.clone());
-                    self.type_check_expr(expr, ty);
-                    self.define(name, ty.clone());
+                    // Only keep checking if it's a valid type, otherwise it's meaningless
+                    if self.validate_type(ty.clone(), *stmt.span()) {
+                        self.type_check_expr(expr, ty);
+                        self.define(name, ty.clone(), *stmt.span());
+                    }
                 }
                 Stmt::Assign { lhs, rhs, span } => {
                     let Some(lhs_ty) = self.type_infer_expr(lhs) else {
@@ -311,6 +326,7 @@ impl Typer {
                     self.type_check_expr(rhs, &lhs_ty);
                 }
                 Stmt::Call(call) => {
+                    // Ignore return type, possibly add warning saying unused return type
                     self.type_infer_call(call);
                 }
                 Stmt::If {
@@ -319,7 +335,7 @@ impl Typer {
                     span,
                 } => {
                     self.type_check_expr(cond, &Type::Bool);
-                    self.type_check_block(Vec::new(), then_block, ret_ty.clone());
+                    self.type_check_block(then_block, ret_ty.clone());
                 }
                 Stmt::IfElse {
                     cond,
@@ -329,56 +345,26 @@ impl Typer {
                 } => {
                     self.type_check_expr(cond, &Type::Bool);
 
-                    let if_returns = self.type_check_block(Vec::new(), then_block, ret_ty.clone());
-                    let else_returns =
-                        self.type_check_block(Vec::new(), else_block, ret_ty.clone());
+                    let if_returns = self.type_check_block(then_block, ret_ty.clone());
+                    let else_returns = self.type_check_block(else_block, ret_ty.clone());
                     has_returned = if_returns && else_returns;
                 }
                 Stmt::While { cond, block, span } => {
                     self.type_check_expr(cond, &Type::Bool);
-                    self.type_check_block(Vec::new(), block, ret_ty.clone());
+                    self.type_check_block(block, ret_ty.clone());
                 }
                 Stmt::For {
                     name,
                     range,
                     block,
                     span,
-                } => {
-                    let Expr::Call(Call {
-                        name: range_name,
-                        args,
-                        span,
-                    }) = range
-                    else {
-                        // TODO: Error here
-                        continue;
-                    };
-
-                    // TODO: Verify range name
-                    match args.len() {
-                        1 => {
-                            self.type_check_expr(&args[0], &Type::Int);
-                        }
-                        2 => {
-                            self.type_check_expr(&args[0], &Type::Int);
-                            self.type_check_expr(&args[1], &Type::Int);
-                        }
-                        _ => {
-                            // TODO: Eitehr 1 or 2, not just 1
-                            self.add_error(
-                                *span,
-                                TypeErrorKind::WrongArgCount {
-                                    name: "#range".to_string(),
-                                    expected: 1,
-                                    actual: args.len(),
-                                },
-                            );
-                            continue;
-                        }
-                    }
-
-                    self.type_check_block(vec![(name.clone(), Type::Int)], block, ret_ty.clone());
-                }
+                } => self.type_check_for(
+                    name.clone(),
+                    range.clone(),
+                    block.clone(),
+                    *span,
+                    ret_ty.clone(),
+                ),
                 Stmt::Ret { expr, span } => {
                     self.type_check_expr(expr, &ret_ty);
                     has_returned = true;
@@ -401,15 +387,61 @@ impl Typer {
         has_returned
     }
 
-    fn type_infer_struct_field(&mut self, name: String, field: String) -> Option<Type> {
+    fn type_check_for(
+        &mut self,
+        name: String,
+        range: Expr,
+        block: Block,
+        span: Span,
+        ret_ty: Type,
+    ) {
+        let Expr::Call(Call {
+            name: range_name,
+            args,
+            span,
+        }) = range
+        else {
+            // TODO: Error here
+            return;
+        };
+
+        // TODO: Verify range name
+        match args.len() {
+            1 => {
+                self.type_check_expr(&args[0], &Type::Int);
+            }
+            2 => {
+                self.type_check_expr(&args[0], &Type::Int);
+                self.type_check_expr(&args[1], &Type::Int);
+            }
+            _ => {
+                // TODO: Eitehr 1 or 2, not just 1
+                self.add_error(
+                    span,
+                    TypeErrorKind::WrongArgCount {
+                        name: "#range".to_string(),
+                        expected: 1,
+                        actual: args.len(),
+                    },
+                );
+                return;
+            }
+        }
+
+        self.enter_scope();
+        self.define(&name.clone(), Type::Int, span);
+        self.type_check_block(&block, ret_ty);
+        self.exit_scope();
+    }
+
+    fn type_infer_struct_field(&mut self, name: String, field: String, span: Span) -> Option<Type> {
         let decl = self.table.structs.get(&name);
         match decl {
             Some(decl) => match decl.fields.get(&field) {
                 Some(ty) => Some(ty.0.clone()),
                 None => {
-                    // @empty-span
                     self.add_error(
-                        Span::empty(),
+                        span,
                         TypeErrorKind::UnkownStrtructField {
                             field: field.clone(),
                             struct_name: decl.name.clone(),
@@ -419,8 +451,7 @@ impl Typer {
                 }
             },
             None => {
-                // @empty-span
-                self.add_error(Span::empty(), TypeErrorKind::StructNotDefined);
+                self.add_error(span, TypeErrorKind::StructNotDefined);
                 None
             }
         }
@@ -506,7 +537,7 @@ impl Typer {
         }
 
         for (i, arg) in args.iter().enumerate() {
-            let Some((_, ty)) = params.get(i) else {
+            let Some((_, ty, _)) = params.get(i) else {
                 unreachable!()
             };
             self.type_check_expr(arg, ty);
@@ -515,17 +546,26 @@ impl Typer {
         Some(ret_ty)
     }
 
-    fn validate_type(&mut self, ty: Type) {
+    fn validate_type(&mut self, ty: Type, span: Span) -> bool {
         match ty {
-            Type::Struct(name) => {
-                if !self.table.structs.contains_key(&name) {
-                    self.add_error(Span::empty(), TypeErrorKind::InvalidType);
-                };
+            Type::Struct(ref name) => {
+                if !self.table.structs.contains_key(&name.clone()) {
+                    self.add_error(
+                        span,
+                        TypeErrorKind::InvalidType {
+                            ty,
+                            message: "Type not found".to_string(),
+                        },
+                    );
+                    false
+                } else {
+                    true
+                }
             }
-            Type::Array(elem_ty, _) => self.validate_type(*elem_ty.clone()),
-            Type::Slice(elem_ty) => self.validate_type(*elem_ty.clone()),
-            Type::Ref(ty) => self.validate_type(*ty.clone()),
-            _ => {}
+            Type::Array(elem_ty, _) => self.validate_type(*elem_ty.clone(), span),
+            Type::Slice(elem_ty) => self.validate_type(*elem_ty.clone(), span),
+            Type::Ref(ty) => self.validate_type(*ty.clone(), span),
+            _ => true,
         }
     }
 
@@ -563,16 +603,14 @@ impl Typer {
         };
     }
 
-    fn define(&mut self, name: &str, ty: Type) {
+    fn define(&mut self, name: &str, ty: Type, span: Span) {
         let Some(scope) = self.scopes.last_mut() else {
-            // @empty-span
-            self.add_error(Span::empty(), TypeErrorKind::ScopeNotDefined);
+            self.add_error(span, TypeErrorKind::ScopeNotDefined);
             return;
         };
 
         if scope.contains_key(name) {
-            // @empty-span
-            self.add_error(Span::empty(), TypeErrorKind::VarAlreadyDefined);
+            self.add_error(span, TypeErrorKind::VarAlreadyDefined);
             return;
         }
         scope.insert(name.to_string(), ty);
@@ -585,7 +623,6 @@ impl Typer {
             }
         }
 
-        // @empty-span
         self.add_error(span, TypeErrorKind::VarNotDefined { name: name.clone() });
         None
     }

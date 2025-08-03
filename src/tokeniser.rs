@@ -11,7 +11,7 @@ use crate::token::*;
 pub struct Tokeniser {
     // Raw file data
     pub file_path: String,
-    source: String,
+    source: Vec<char>,
 
     // Starting at
     start: usize,
@@ -39,7 +39,7 @@ impl Tokeniser {
 
         Tokeniser {
             file_path,
-            source,
+            source: source.chars().collect(),
             tokens: Vec::new(),
             curr: 0,
             start: 0,
@@ -50,7 +50,7 @@ impl Tokeniser {
         }
     }
 
-    pub fn from_source(source: String) -> Tokeniser {
+    pub fn from_source(source: Vec<char>) -> Tokeniser {
         Tokeniser {
             file_path: String::new(),
             source,
@@ -69,17 +69,29 @@ impl Tokeniser {
     }
 
     fn advance(&mut self) -> char {
-        self.curr_col += 1;
-        self.curr += 1;
-        self.source.chars().nth(self.curr - 1).unwrap_or('\0')
-    }
-
-    fn peek(&self) -> char {
-        if self.is_at_end() {
+        if self.curr >= self.source.len() {
             return '\0';
         }
 
-        self.source.chars().nth(self.curr).unwrap_or('\0')
+        let c = self.source[self.curr];
+        self.curr += 1;
+
+        if c == '\n' {
+            self.curr_line += 1;
+            self.curr_col = 1;
+        } else {
+            self.curr_col += 1;
+        }
+
+        c
+    }
+
+    fn peek(&self) -> char {
+        if self.curr >= self.source.len() {
+            '\0'
+        } else {
+            self.source[self.curr]
+        }
     }
 
     fn span(&self) -> Span {
@@ -129,7 +141,9 @@ impl Tokeniser {
                 Ok(())
             }
             ':' => {
-                self.add_token(TokenType::Colon);
+                if self.peek() == ':' {
+                    self.add_token(TokenType::ColonColon);
+                }
                 Ok(())
             }
             ';' => {
